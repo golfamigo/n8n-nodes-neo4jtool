@@ -31,7 +31,8 @@
     "lint": "eslint nodes credentials package.json",
     "lintfix": "eslint nodes credentials package.json --fix",
     "prepublishOnly": "pnpm build && pnpm lint -c .eslintrc.prepublish.js nodes credentials package.json",
-    "dev:n8n": "cross-env NODE_FUNCTION_ALLOW_EXTERNAL=. N8N_USER_FOLDER=\"E:\\gitHub\\n8n-nodes-neo4jtool\\.n8n-dev-data\" DB_TYPE='sqlite' N8N_HOST='127.0.0.1' N8N_LOG_FILE='./n8n-debug.log' n8n start"  },
+    "dev:n8n": "cross-env N8N_USER_FOLDER=\"E:\\gitHub\\n8n-nodes-neo4jtool\\.n8n-dev-data\" DB_TYPE='sqlite' N8N_HOST='127.0.0.1' N8N_LOG_FILE='./n8n-debug.log' n8n start"
+  },
   "files": [
     "dist"
   ],
