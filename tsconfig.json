@@ -23,8 +23,14 @@
 	},
 	"include": [
 		"credentials/**/*",
+		"credentials/Neo4jApi.credentials.ts", // Explicitly include the renamed file
 		"nodes/**/*",
 		"nodes/**/*.json",
 		"package.json",
 	],
+	"exclude": [
+		"node_modules",
+		"dist",
+		"Postgres/**/*"
+	]
 }
