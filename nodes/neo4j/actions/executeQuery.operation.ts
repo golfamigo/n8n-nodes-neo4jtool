@@ -29,7 +29,6 @@ export const description: INodeProperties[] = [
 				operation: ['executeQuery'],
 			},
 		},
-		noDataExpression: true,
 	},
 	{
 		displayName: 'Parameters',
