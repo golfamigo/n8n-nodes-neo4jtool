@@ -12,37 +12,36 @@ import { description as operationsDescription } from './actions/operations';
 import { credentialTest, loadOptions } from './methods';
 
 export class Neo4j implements INodeType {
-	description: INodeTypeDescription;
-
-	constructor(baseDescription: INodeTypeBaseDescription) {
-		// First, assign the base description. This includes usableAsTool.
-		// We need to cast because TS might think baseDescription lacks specific properties initially.
-		this.description = baseDescription as INodeTypeDescription;
-
-		// Now, add or overwrite the node-specific properties
-		this.description.displayName = 'Neo4j';
-		this.description.name = 'neo4j';
-		this.description.icon = 'file:neo4j.svg';
-		this.description.group = ['database'];
-		this.description.version = 1;
-		this.description.subtitle = '={{$parameter["operation"]}}';
-		this.description.description = 'Interact with a Neo4j graph database';
-		this.description.defaults = {
+	// Define description directly as a class property
+	description: INodeTypeDescription = {
+		displayName: 'Neo4j',
+		name: 'neo4j',
+		icon: 'file:neo4j.svg',
+		group: ['database'],
+		version: 1,
+		subtitle: '={{$parameter["operation"]}}',
+		description: 'Interact with a Neo4j graph database',
+		defaults: {
 			name: 'Neo4j',
-		};
-		this.description.inputs = ['main'];
-		this.description.outputs = ['main'];
-		// usableAsTool should be inherited from baseDescription, no need to set explicitly here
-		this.description.credentials = [
+		},
+		inputs: ['main'],
+		outputs: ['main'],
+		// @ts-ignore - Workaround: Suppress TS error for usableAsTool in this project context
+		usableAsTool: true,
+		credentials: [
 			{
 				name: 'neo4jApi',
 				required: true,
 			},
-		];
-		this.description.properties = [
+		],
+		properties: [
 			// Spread the imported operations description
 			...operationsDescription,
-		];
+		],
+	};
+
+	constructor(baseDescription: INodeTypeBaseDescription) {
+        // Constructor remains simple
 	}
 
 	// Register methods callable from the UI
