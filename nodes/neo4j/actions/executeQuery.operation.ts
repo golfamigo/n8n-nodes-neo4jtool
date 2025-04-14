@@ -9,7 +9,8 @@ import type { Session } from 'neo4j-driver';
 
 // Import helpers and types
 import type { Neo4jNodeOptions } from '../helpers/interfaces';
-import { parseJsonParameter, runCypherQuery, parseNeo4jError } from '../helpers/utils';
+// parseJsonParameter is no longer needed here if parameters are removed
+import { runCypherQuery, parseNeo4jError } from '../helpers/utils';
 
 // --- UI Definition ---
 export const description: INodeProperties[] = [
@@ -23,26 +24,15 @@ export const description: INodeProperties[] = [
 		required: true,
 		default: '',
 		placeholder: 'MATCH (n) RETURN n LIMIT 10',
-		description: 'The Cypher query to execute. Use $parameterName syntax for parameters defined below.',
+		description: 'The Cypher query to execute', // Removed mention of parameters
 		displayOptions: {
 			show: {
 				operation: ['executeQuery'],
 			},
 		},
+		// noDataExpression removed previously
 	},
-	{
-		displayName: 'Parameters',
-		name: 'parameters',
-		type: 'json',
-		default: '{}',
-		placeholder: '{"name": "Alice", "limit": {{ $json.maxResults || 10 }} }',
-		description: 'Parameters to pass to the Cypher query (JSON object). Values can be n8n expressions.',
-		displayOptions: {
-			show: {
-				operation: ['executeQuery'],
-			},
-		},
-	},
+	// Removed 'parameters' property definition
 	{
 		displayName: 'Options',
 		name: 'options',
@@ -79,7 +69,6 @@ export const description: INodeProperties[] = [
 				default: 'auto',
 				description: 'Choose the type of transaction to use',
 			},
-			// Add other executeQuery specific options here if needed
 		],
 	},
 ];
@@ -87,9 +76,9 @@ export const description: INodeProperties[] = [
 // --- Execution Logic ---
 export async function execute(
 	this: IExecuteFunctions,
-	session: Session, // Passed from router
+	session: Session,
 	items: INodeExecutionData[],
-	nodeOptions: Neo4jNodeOptions, // General node options like continueOnFail (though we use this.continueOnFail)
+	nodeOptions: Neo4jNodeOptions,
 ): Promise<INodeExecutionData[]> {
 	const allResults: INodeExecutionData[] = [];
 
@@ -97,7 +86,7 @@ export async function execute(
 		try {
 			// Get parameters for the current item
 			const query = this.getNodeParameter('query', i, '') as string;
-			const parametersRaw = this.getNodeParameter('parameters', i, '{}') as string | IDataObject;
+			// Removed reading 'parametersRaw'
 			const options = this.getNodeParameter('options', i, {}) as IDataObject;
 			const transactionTypeHint = options.transactionType as 'auto' | 'read' | 'write' | undefined ?? 'auto';
 
@@ -105,8 +94,10 @@ export async function execute(
 				throw new NodeOperationError(this.getNode(), 'Cypher Query cannot be empty.', { itemIndex: i });
 			}
 
-			// Parse and evaluate expressions in parameters
-			const parameters = await parseJsonParameter.call(this, parametersRaw, i);
+			// --- REMOVED PARAMETER PARSING LOGIC ---
+			// Since parameters are removed, pass an empty object to runCypherQuery
+			const parameters: IDataObject = {};
+			// --- END REMOVAL ---
 
 			// Determine if it's a write query based on hint or keywords
 			let isWriteQuery = false;
@@ -119,7 +110,7 @@ export async function execute(
 				}
 			}
 
-			// Call the generic Cypher runner from utils.ts
+			// Call the generic Cypher runner from utils.ts, passing empty parameters
 			const resultData = await runCypherQuery.call(this, session, query, parameters, isWriteQuery, i);
 
 			// Merge results
@@ -127,7 +118,6 @@ export async function execute(
 
 		} catch (error) {
 			// Handle continueOnFail or re-throw
-			// Corrected: Use this.continueOnFail(error)
 			if (this.continueOnFail(error)) {
 				const node = this.getNode();
 				const parsedError = parseNeo4jError(node, error, 'executeQuery');

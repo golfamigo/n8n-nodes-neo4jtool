@@ -9,7 +9,8 @@ import {
 // Import router, operations description, and method functions/objects
 import { router } from './actions/router';
 import { description as operationsDescription } from './actions/operations';
-import { credentialTest, loadOptions } from './methods';
+// Import methods including the new resourceMapping
+import { credentialTest, loadOptions, resourceMapping as resourceMappingFunction } from './methods'; // Rename imported resourceMapping to avoid conflict
 
 export class Neo4j implements INodeType {
 	// Define description directly as a class property
@@ -45,11 +46,18 @@ export class Neo4j implements INodeType {
 	}
 
 	// Register methods callable from the UI
+	// Ensure the structure matches INodeType['methods']
 	methods = {
 		credentialTest: {
-			credentialTest,
+			// Key 'credentialTest' matches the expected property name for testing credentials
+			credentialTest, // The imported function
 		},
-		loadOptions,
+		loadOptions, // This is already an object { getNodeLabels, ... }
+		resourceMapping: {
+			// Key 'getFields' is arbitrary but descriptive for the function's purpose
+			// The value is the imported resourceMapping function
+			getFields: resourceMappingFunction,
+		},
 	};
 
 	// Execution entry point, delegates to the router

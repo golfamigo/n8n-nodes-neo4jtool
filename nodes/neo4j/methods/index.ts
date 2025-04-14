@@ -2,6 +2,7 @@
 
 // Export credential testing function
 export { credentialTest } from './credentialTest';
+export { resourceMapping } from './resourceMapping';
 
 // Import load options functions
 import { getNodeLabels, getRelationshipTypes, getPropertyKeys } from './loadOptions';
