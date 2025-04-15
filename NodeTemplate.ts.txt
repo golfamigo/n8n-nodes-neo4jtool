@@ -1,3 +1,20 @@
+// ============================================================================
+// N8N Neo4j Dedicated Node Template (v2 - Based on Debugging Session)
+// ============================================================================
+// Purpose: Base template for creating dedicated Neo4j nodes for specific actions,
+//          intended to be used with the "multiple instances" pattern for AI Agents.
+// Usage:
+// 1. Create a directory: nodes/Neo4jYourActionName/
+// 2. Copy this file into that directory.
+// 3. Rename this file: Neo4jYourActionName.node.ts
+// 4. Rename the class: export class Neo4jYourActionName implements INodeType { ... }
+// 5. Update the description object: displayName, name ('neo4jYourActionName'), description, properties, etc.
+// 6. Place an icon file (e.g., neo4j.svg or a custom icon.svg) in this directory. Update 'icon' path if needed.
+// 7. Implement the execute method with specific Cypher logic for this action.
+// 8. Register the compiled JS path (e.g., "dist/nodes/Neo4jYourActionName/Neo4jYourActionName.node.js")
+//    in package.json's n8n.nodes array.
+// ============================================================================
+
 import type {
 	IExecuteFunctions,
 	IDataObject,
@@ -9,57 +26,60 @@ import type {
 import { NodeOperationError } from 'n8n-workflow';
 import type { Session } from 'neo4j-driver';
 
-// Import shared Neo4j helper functions
-// Assuming the new node file is located at nodes/YourNodeName/YourNodeName.node.ts
-// and helpers are at nodes/neo4j/helpers/
+// --- IMPORTANT: Shared Utilities ---
+// Assuming this node file is at: nodes/Neo4jYourActionName/Neo4jYourActionName.node.ts
+// Assuming shared helpers are at: nodes/neo4j/helpers/
 import {
 	// connectToNeo4j, // TODO: Implement or import actual connection function
 	runCypherQuery,
 	parseNeo4jError,
-	// wrapNeo4jResult, // Not needed here, runCypherQuery handles it
-	// parseJsonParameter, // Import only if needed for specific parameters
-} from '../neo4j/helpers/utils';
+	// parseJsonParameter, // Import only if needed
+} from '../neo4j/helpers/utils'; // Verify this relative path
 
-// Define the class for your new dedicated node type
-// TODO: Rename class (e.g., FindBusinessByName)
-// TODO: Rename file to match class or n8n convention (e.g., Neo4jFindBusinessByName.node.ts)
-export class TemplateNode implements INodeType {
-	// Define the node description for the n8n UI
+// --- Node Class Definition ---
+// TODO: Rename class to match file name (e.g., Neo4jFindBusinessByName)
+export class Neo4jTemplateNode implements INodeType {
+
+	// --- Node Description for n8n UI ---
 	description: INodeTypeDescription = {
-		displayName: 'Neo4j: My Action', // TODO: Set Display Name
-		name: 'neo4jMyAction', // TODO: Set technical node name (camelCase, unique)
-		icon: 'file:../neo4j/neo4j.svg', // Corrected path assuming new node is in nodes/NodeType/
-		group: ['database'], // TODO: Or create a new group like 'neo4jActions'
+		// TODO: Update basic node information
+		displayName: 'Neo4j: My Action', // User-friendly name
+		name: 'neo4jMyAction', // Technical name (camelCase, unique, matches class/file base)
+		icon: 'file:icon.svg', // Assumes icon file is in the same directory
+		group: ['database'], // Or a more specific group like 'neo4jActions'
 		version: 1,
-		subtitle: '={{$parameter["someInput"]}}', // TODO: Adjust subtitle based on a key input parameter
-		description: 'Description of what this specific node does', // TODO: Set node description
+		subtitle: '={{$parameter["someInput"]}}', // Optional: Show a key parameter value dynamically
+		description: 'Description of what this specific node does', // TODO: Describe the node's purpose
 		defaults: {
-			name: 'Neo4j My Action', // TODO: Set default node instance name
+			name: 'Neo4j My Action', // Default name for instances in the workflow
 		},
-		inputs: ['main'], // Use string literal
-		outputs: ['main'], // Use string literal
-		// Mark as usable for AI Agent (using multiple instance pattern)
-		// @ts-ignore // Keep ts-ignore for potential type issues in some envs
-		usableAsTool: true,
-		// Define required credentials
+		inputs: ['main'],
+		outputs: ['main'],
+		// usableAsTool: true, // Removed - Use multiple instances in workflow instead
+
+		// --- Credentials ---
 		credentials: [
 			{
-				name: 'neo4jApi', // Use the shared credential name
+				// IMPORTANT: If encountering "package could not be loaded" errors when multiple
+				// Neo4j nodes are registered, try defining a UNIQUE credential name for EACH node type
+				// (e.g., 'neo4jMyActionApi') and creating a corresponding credential file,
+				// even if the properties are identical to 'neo4jApi'.
+				name: 'neo4jApi', // TODO: Consider using a unique name like 'neo4jMyActionApi'
 				required: true,
 			},
 		],
-		// Define the input properties specific to this node's action
+
+		// --- Node Specific Input Properties ---
 		properties: [
-			// --- INPUT PARAMETERS ---
-			// TODO: Add the specific input parameters needed for THIS node's action
+			// TODO: Define the input fields needed for this specific action.
 			// Example:
 			// {
 			// 	displayName: 'Search Term',
-			// 	name: 'searchTerm',
+			// 	name: 'searchTerm', // Used in getNodeParameter
 			// 	type: 'string',
 			// 	required: true,
 			// 	default: '',
-			// 	description: 'The term to search for in business names',
+			// 	description: 'The keyword for fuzzy name matching',
 			// },
 		],
 	};
@@ -67,45 +87,46 @@ export class TemplateNode implements INodeType {
 	// Optional: Define methods like loadOptions if needed
 	// methods = { ... };
 
-	// Define the execution logic for this node
+	// --- Node Execution Logic ---
 	async execute(this: IExecuteFunctions): Promise<INodeExecutionData[][]> {
 		const items = this.getInputData();
 		const returnData: INodeExecutionData[] = [];
 		let session: Session | undefined;
 
 		try {
-			const credentials = await this.getCredentials('neo4jApi');
-			// --- TODO: Implement robust connection logic ---
-			// Replace this placeholder with actual session acquisition
-			// Consider creating a shared connectToNeo4j function in utils.ts
-			const tempSession = (this.helpers as any).neo4j?.getSession?.(credentials); // Placeholder attempt
-			if (!tempSession) {
-				// Throw error if session is not obtained
-				throw new NodeOperationError(this.getNode(), 'Failed to establish Neo4j session. Check connection logic.');
-			}
-			// Assign session *after* the check
-			session = tempSession;
+			// 1. Get Credentials
+			// TODO: Use the correct credential name defined above
+			const credentials = await this.getCredentials('neo4jApi'); // Or 'neo4jMyActionApi'
 
-			// Loop or process items as needed
+			// 2. Establish Neo4j Session
+			// TODO: Replace placeholder with robust connection logic (ideally a shared function)
+			const tempSession = (this.helpers as any).neo4j?.getSession?.(credentials);
+			if (!tempSession) {
+				throw new NodeOperationError(this.getNode(), 'Failed to establish Neo4j session.');
+			}
+			session = tempSession; // Assign only after check
+
+			// 3. Loop Through Input Items (Adjust if node runs only once)
 			for (let i = 0; i < items.length; i++) {
 				try {
-					// --- Get Node Specific Parameters ---
-					// TODO: Get all parameters defined in 'properties' for index 'i'
+					// 4. Get Input Parameters for Current Item
+					// TODO: Get all parameters defined in 'properties' using this.getNodeParameter(name, i, defaultValue)
 					// Example: const searchTerm = this.getNodeParameter('searchTerm', i, '') as string;
 
-					// --- Define Specific Cypher Query & Parameters ---
-					// TODO: Define the Cypher query and parameters specific to THIS node's action
+					// 5. Define Specific Cypher Query & Parameters for this Action
+					// TODO: Write the Cypher query for this node's specific task. Use $parameters.
 					const query = 'RETURN "Implement Cypher Query Here" AS message'; // Placeholder
-					const parameters: IDataObject = {}; // Placeholder
-					const isWrite = false; // Set to true if query modifies data
+					const parameters: IDataObject = {}; // TODO: Populate with values from getNodeParameter
+					const isWrite = false; // TODO: Set to true for CREATE/MERGE/SET/DELETE
 
-					// --- Execute Query using Shared Function ---
-					// Use non-null assertion '!' as session is guaranteed non-undefined here
+					// 6. Execute Query
+					// Use non-null assertion '!' because session is checked above
 					const results = await runCypherQuery.call(this, session!, query, parameters, isWrite, i);
-					// results from runCypherQuery should already be INodeExecutionData[]
+					// results should be INodeExecutionData[]
 					returnData.push(...results);
 
 				} catch (error) {
+					// 7. Handle Item-Level Errors (Continue on Fail)
 					if (this.continueOnFail(error)) {
 						const item = items[i];
 						const parsedError = parseNeo4jError(this.getNode(), error);
@@ -119,14 +140,15 @@ export class TemplateNode implements INodeType {
 				}
 			}
 
+			// 8. Return Results
 			return [returnData];
 
 		} catch (error) {
-			// Handle node execution errors (connection, etc.)
+			// 9. Handle Node-Level Errors (e.g., connection)
 			if (error instanceof NodeOperationError) { throw error; }
 			throw parseNeo4jError(this.getNode(), error);
 		} finally {
-			// --- Close Session ---
+			// 10. Close Session
 			if (session) {
 				try {
 					await session.close();

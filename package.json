@@ -1,6 +1,6 @@
 {
   "name": "n8n-nodes-neo4jtool",
-  "version": "0.1.16",
+  "version": "0.1.33",
   "description": "a Neo4j node for n8n workflows",
   "keywords": [
     "n8n-community-node-package",
@@ -39,9 +39,11 @@
   "n8n": {
     "n8nNodesApiVersion": 1,
     "credentials": [
+      "dist/credentials/Neo4jFindBusinessByNameApi.credentials.js",
       "dist/credentials/Neo4jApi.credentials.js"
     ],
     "nodes": [
+      "dist/nodes/Neo4jFindBusinessByName/Neo4jFindBusinessByName.node.js",
       "dist/nodes/neo4j/Neo4j.node.js"
     ]
   },
