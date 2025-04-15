@@ -1,6 +1,6 @@
 {
   "name": "n8n-nodes-neo4jtool",
-  "version": "0.1.34",
+  "version": "0.1.47",
   "description": "a Neo4j node for n8n workflows",
   "keywords": [
     "n8n-community-node-package",
@@ -43,7 +43,28 @@
     ],
     "nodes": [
       "dist/nodes/Neo4jFindBusinessByName/Neo4jFindBusinessByName.node.js",
-      "dist/nodes/neo4j/Neo4j.node.js"
+      "dist/nodes/neo4j/Neo4j.node.js",
+      "dist/nodes/Neo4jFindUserByExternalId/Neo4jFindUserByExternalId.node.js",
+      "dist/nodes/Neo4jCreateBusiness/Neo4jCreateBusiness.node.js",
+      "dist/nodes/Neo4jUpdateBusiness/Neo4jUpdateBusiness.node.js",
+      "dist/nodes/Neo4jDeleteBusiness/Neo4jDeleteBusiness.node.js",
+      "dist/nodes/Neo4jFindServicesByBusiness/Neo4jFindServicesByBusiness.node.js",
+      "dist/nodes/Neo4jCreateService/Neo4jCreateService.node.js",
+      "dist/nodes/Neo4jUpdateService/Neo4jUpdateService.node.js",
+      "dist/nodes/Neo4jDeleteService/Neo4jDeleteService.node.js",
+      "dist/nodes/Neo4jCreateCustomer/Neo4jCreateCustomer.node.js",
+      "dist/nodes/Neo4jUpdateCustomer/Neo4jUpdateCustomer.node.js",
+      "dist/nodes/Neo4jDeleteCustomer/Neo4jDeleteCustomer.node.js",
+      "dist/nodes/Neo4jCreateUser/Neo4jCreateUser.node.js",
+      "dist/nodes/Neo4jUpdateUser/Neo4jUpdateUser.node.js",
+      "dist/nodes/Neo4jCreateBooking/Neo4jCreateBooking.node.js",
+      "dist/nodes/Neo4jUpdateBooking/Neo4jUpdateBooking.node.js",
+      "dist/nodes/Neo4jDeleteBooking/Neo4jDeleteBooking.node.js",
+      "dist/nodes/Neo4jCreateResource/Neo4jCreateResource.node.js",
+      "dist/nodes/Neo4jUpdateResource/Neo4jUpdateResource.node.js",
+      "dist/nodes/Neo4jDeleteResource/Neo4jDeleteResource.node.js",
+      "dist/nodes/Neo4jListResourceTypes/Neo4jListResourceTypes.node.js",
+      "dist/nodes/Neo4jFindAvailableSlots/Neo4jFindAvailableSlots.node.js"
     ]
   },
   "devDependencies": {

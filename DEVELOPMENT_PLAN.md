@@ -1,85 +1,125 @@
-# n8n Neo4j 節點開發計劃
+# 開發計劃：增強 Neo4j 節點以支持資源和可用性檢查
 
-## 目前狀態
+**目標:** 擴展現有的 n8n-nodes-neo4jtool 節點包，使其能夠處理預約時的資源（如座位、桌位）和員工可用性檢查，提高預約功能的實用性和準確性，並方便 AI Agent 選用。
 
-*   **結構完整**：節點的核心檔案 (`nodes/neo4j/Neo4j.node.ts`)、憑證檔案 (`credentials/Neo4jApi.credentials.ts`)、以及 `actions`, `methods`, `helpers` 目錄下的所有必要檔案骨架都已建立，參考了 `Postgres/devDoc` 的結構。
-*   **邏輯骨架**：大部分檔案（特別是 `router.ts`、各個 `*.operation.ts` 檔案、`utils.ts`）目前只包含了基礎結構和從參考範例來的邏輯，尚未針對 Neo4j 的具體需求進行完整實作和測試。
+**核心變更：**
 
-## 下一步開發計劃
+1.  **引入資源管理:** 添加通用的 `Resource` 節點來代表可預約的實體資源。
+2.  **引入預約模式:** 在 `Business` 節點上添加 `booking_mode` 屬性，以區分不同的預約檢查邏輯。
+3.  **實現可用性檢查:** 創建一個核心的 `FindAvailableSlots` 節點，根據商家的 `booking_mode` 智能地檢查資源和/或員工的可用性。
+4.  **輔助節點:** 添加用於管理資源類型和資源本身的 CRUD 節點。
+5.  **更新現有節點:** 修改 `CreateBooking`, `CreateBusiness`, `UpdateBusiness` 以支持新的 Schema 和邏輯。
 
-為了確保節點功能完善且穩定，建議按照以下步驟進行：
+## 1. Schema 設計變更
 
-1.  **強化核心工具 (`helpers/utils.ts`)**:
-    *   **`runCypherQuery`**: 仔細實作此核心函式，確保：
-        *   正確處理讀/寫交易 (`session.executeRead`/`session.executeWrite`)。
-        *   正確處理 Cypher 參數。
-        *   可靠地轉換 `neo4j-driver` 返回的結果 (包括特殊類型) 為 n8n 需要的 JSON 格式 (使用 `convertNeo4jValueToJs`)。
-        *   有效地捕獲和初步處理執行時的錯誤。
-    *   **`parseNeo4jError`**: 增強此函式，解析更多錯誤類型，提供更友善的錯誤訊息。
-    *   **其他輔助函式**: 檢查並確保 `formatLabels`, `buildPropertiesClause` 等函式的健壯性。
+**a. 新增節點標籤:**
 
-2.  **逐一實作操作邏輯 (`actions/*.operation.ts`)**:
-    *   按照 `operations.ts` 中定義的順序 (`executeQuery`, `createNode`, `matchNodes`, `updateNode`, `deleteNode`, `createRelationship`)。
-    *   對於每個操作的 `execute` 函式：
-        *   確保正確獲取 n8n 參數。
-        *   根據參數動態生成正確的 Cypher 查詢。
-        *   準備好傳遞給 `runCypherQuery` 的參數物件。
-        *   正確呼叫 `runCypherQuery`。
-        *   處理結果或錯誤 (結合 `continueOnFail`)。
+*   `Resource`: 代表可預約的實體資源。
+    *   **建議屬性:**
+        *   `resource_id`: STRING (唯一 ID, 使用 `randomUUID()`)
+        *   `business_id`: STRING (關聯的商家 ID, 建立索引)
+        *   `type`: STRING (資源類型, 例如 'Table', 'Seat', 'Room', 'Equipment', 建立索引)
+        *   `name`: STRING (資源名稱/編號, 例如 'Table 5', 'Window Seat 2', 'VIP Room', 建立索引)
+        *   `capacity`: INTEGER (可選, 資源容量)
+        *   `properties`: MAP (可選, 存儲其他特定屬性)
+        *   `created_at`: DATETIME
+        *   `updated_at`: DATETIME
 
-3.  **完善節點方法 (`methods/*.ts`)**:
-    *   **`credentialTest.ts`**: 確保連線測試邏輯完整，錯誤處理清晰。
-    *   **`loadOptions.ts`**: 確保查詢標籤、關係類型等的 Cypher 正確，結果轉換無誤，並處理好錯誤。
+**b. 修改節點標籤:**
 
-4.  **整合與測試**:
-    *   確保所有 `import` 都已解析。
-    *   在 n8n 環境中實際安裝和測試節點。
-    *   測試每個操作、邊緣情況、錯誤處理和 `continueOnFail`。
-    *   測試憑證測試和動態選項載入。
+*   `Business`:
+    *   **新增屬性:** `booking_mode`: STRING (建議值: 'ResourceOnly', 'StaffOnly', 'StaffAndResource', 'TimeOnly', 建立索引) - 指示該商家的預約需要檢查哪些可用性。
 
-## 執行流程示意圖 (Mermaid)
+**c. 新增關係:**
+
+*   `(:Business)-[:HAS_RESOURCE]->(:Resource)`
+*   `(:Booking)-[:RESERVES_RESOURCE]->(:Resource)`
+
+**d. 建議約束:**
+
+*   `CREATE CONSTRAINT unique_resource_id IF NOT EXISTS FOR (r:Resource) REQUIRE r.resource_id IS UNIQUE;`
+*   `CREATE INDEX index_resource_business_id IF NOT EXISTS FOR (r:Resource) ON (r.business_id);`
+*   `CREATE INDEX index_resource_type IF NOT EXISTS FOR (r:Resource) ON (r.type);`
+*   `CREATE INDEX index_resource_name IF NOT EXISTS FOR (r:Resource) ON (r.name);`
+*   `CREATE INDEX index_business_booking_mode IF NOT EXISTS FOR (b:Business) ON (b.booking_mode);`
+
+**e. 更新後的 Schema (Mermaid):**
 
 ```mermaid
 graph TD
-    A[Neo4j.node.ts .execute()] --> B(actions/router.ts router());
-    B --> C{Operation?};
-    C -- executeQuery --> D(actions/executeQuery.ts .execute());
-    C -- createNode --> E(actions/createNode.ts .execute());
-    C -- matchNodes --> F(actions/matchNodes.ts .execute());
-    C -- updateNode --> G(actions/updateNode.ts .execute());
-    C -- deleteNode --> H(actions/deleteNode.ts .execute());
-    C -- createRelationship --> I(actions/createRelationship.ts .execute());
-    D --> J(helpers/utils.ts runCypherQuery());
-    E --> J;
-    F --> J;
-    G --> J;
-    H --> J;
-    I --> J;
-    J --> K[Neo4j DB];
-    K --> J;
-    J --> L[Format Result];
-    L --> D;
-    L --> E;
-    L --> F;
-    L --> G;
-    L --> H;
-    L --> I;
-    D --> B;
-    E --> B;
-    F --> B;
-    G --> B;
-    H --> B;
-    I --> B;
-    B --> A;
+    B(Business)
+    S(Service)
+    St(Staff)
+    SA(StaffAvailability)
+    BH(BusinessHours)
+    Bk(Booking)
+    C(Customer)
+    U(User)
+    Cat(Category)
+    Res(Resource) # <-- 新增
 
-    subgraph Methods
-        M(Neo4j.node.ts .methods) --> N(methods/index.ts);
-        N -- credentialTest --> O(methods/credentialTest.ts);
-        N -- loadOptions --> P(methods/loadOptions.ts);
-        O --> K;
-        P --> K;
-    end
+    B -- OWNS --> U
+    B -- EMPLOYS --> St
+    B -- OFFERS --> S
+    B -- HAS_HOURS --> BH
+    B -- HAS_RESOURCE --> Res # <-- 新增關係
 
-    style J fill:#f9f,stroke:#333,stroke-width:2px
-    style K fill:#ccf,stroke:#333,stroke-width:2px
-    style L fill:#ccf,stroke:#333,stroke-width:2px
+    S -- BELONGS_TO_CATEGORY --> Cat
+    Cat -- BELONGS_TO --> B
+
+    St -- HAS_USER_ACCOUNT --> U
+    St -- HAS_AVAILABILITY --> SA
+    St -- CAN_PROVIDE --> S
+
+    C -- HAS_USER_ACCOUNT --> U
+    C -- REGISTERED_WITH --> B
+    C -- MAKES --> Bk
+
+    Bk -- BOOKED_BY --> C
+    Bk -- AT_BUSINESS --> B
+    Bk -- FOR_SERVICE --> S
+    Bk -- SERVED_BY --> St
+    Bk -- RESERVES_RESOURCE --> Res # <-- 新增關係
+```
+
+## 2. 節點開發/修改計劃
+
+**a. 新增節點:**
+
+*   **`Neo4jCreateResource`**: 創建新的 `Resource` 節點並關聯到 `Business`。
+*   **`Neo4jUpdateResource`**: 更新現有 `Resource` 節點的屬性。
+*   **`Neo4jDeleteResource`**: 刪除 `Resource` 節點及其關係。
+*   **`Neo4jListResourceTypes`**: 查詢指定商家下已存在的 `Resource.type` 列表。
+*   **`Neo4jFindAvailableSlots`**:
+    *   **核心功能:** 根據輸入的 `businessId`, `serviceId`, `startDateTime`, `endDateTime` 以及可選的 `requiredResourceType`, `requiredResourceCapacity`, `requiredStaffId` 查找可用預約時間段。
+    *   **內部邏輯:**
+        1.  查詢 `Business` 的 `booking_mode`。
+        2.  根據 `booking_mode` 決定執行哪些檢查：
+            *   'ResourceOnly': 檢查資源預約情況。
+            *   'StaffOnly': 檢查員工可用性和預約情況。
+            *   'StaffAndResource': 同時檢查資源和員工。
+            *   'TimeOnly': 檢查商家營業時間和是否有任何預約衝突。
+        3.  綜合 `BusinessHours`, `StaffAvailability` (如果需要), `Booking` (檢查 `[:SERVED_BY]` 和 `[:RESERVES_RESOURCE]`) 來計算最終可用時段列表。
+
+**b. 修改節點:**
+
+*   **`Neo4jCreateBusiness`**: 添加 `booking_mode` 參數 (設為 required，提供建議選項)。
+*   **`Neo4jUpdateBusiness`**: 添加 `booking_mode` 參數 (設為 optional)。
+*   **`Neo4jCreateBooking`**: 添加可選的 `resourceId` 參數。如果提供，則在創建 Booking 後添加 `[:RESERVES_RESOURCE]` 關係。
+
+## 3. 更新 TaskInstructions.md
+
+*   將更新後的 Schema 描述（包括 `Resource` 和 `booking_mode`）添加到文件頂部。
+*   添加 `Neo4jCreateResource`, `Neo4jUpdateResource`, `Neo4jDeleteResource`, `Neo4jListResourceTypes`, `Neo4jFindAvailableSlots` 的指令範例。
+*   修改 `Neo4jCreateBusiness`, `Neo4jUpdateBusiness`, `Neo4jCreateBooking` 的指令範例以反映新的參數。
+
+## 4. 實施步驟
+
+1.  **手動更新 Neo4j Schema:** 在目標數據庫中執行必要的 `CREATE CONSTRAINT` 和 `CREATE INDEX` 語句。
+2.  **更新 `TaskInstructions.md`:** 按照上述計劃修改文件。
+3.  **開發/修改節點:** 按照更新後的 `TaskInstructions.md` 和 `NodeTemplate.ts.txt` 實現所有新的和修改的節點。
+4.  **更新 `package.json`:** 註冊所有新節點。
+5.  **測試:** 進行全面的測試，確保所有節點按預期工作，特別是 `FindAvailableSlots` 在不同 `booking_mode` 下的邏輯。
+
+---
+*計劃確認於 2025-04-15*

@@ -1,5 +1,5 @@
 // ============================================================================
-// N8N Neo4j Dedicated Node Template (v2 - Based on Debugging Session)
+// N8N Neo4j Dedicated Node Template (v3 - Incorporating Connection Fix)
 // ============================================================================
 // Purpose: Base template for creating dedicated Neo4j nodes for specific actions,
 //          intended to be used with the "multiple instances" pattern for AI Agents.
@@ -21,16 +21,16 @@ import type {
 	INodeExecutionData,
 	INodeType,
 	INodeTypeDescription,
+	ICredentialDataDecryptedObject, // Needed for credential type assertion
 	// Add other necessary types from n8n-workflow if needed
 } from 'n8n-workflow';
 import { NodeOperationError } from 'n8n-workflow';
-import type { Session } from 'neo4j-driver';
+import neo4j, { Driver, Session, auth } from 'neo4j-driver'; // Import driver components
 
 // --- IMPORTANT: Shared Utilities ---
 // Assuming this node file is at: nodes/Neo4jYourActionName/Neo4jYourActionName.node.ts
 // Assuming shared helpers are at: nodes/neo4j/helpers/
 import {
-	// connectToNeo4j, // TODO: Implement or import actual connection function
 	runCypherQuery,
 	parseNeo4jError,
 	// parseJsonParameter, // Import only if needed
@@ -55,16 +55,15 @@ export class Neo4jTemplateNode implements INodeType {
 		},
 		inputs: ['main'],
 		outputs: ['main'],
-		// usableAsTool: true, // Removed - Use multiple instances in workflow instead
+		// @ts-ignore - Workaround: Suppress TS error for usableAsTool in this project context
+		usableAsTool: true,
 
 		// --- Credentials ---
 		credentials: [
 			{
-				// IMPORTANT: If encountering "package could not be loaded" errors when multiple
-				// Neo4j nodes are registered, try defining a UNIQUE credential name for EACH node type
-				// (e.g., 'neo4jMyActionApi') and creating a corresponding credential file,
-				// even if the properties are identical to 'neo4jApi'.
-				name: 'neo4jApi', // TODO: Consider using a unique name like 'neo4jMyActionApi'
+				// IMPORTANT: Use the standard 'neo4jApi' unless specific reasons require a unique one.
+				// Ensure 'neo4jApi' is registered in package.json -> n8n.credentials
+				name: 'neo4jApi',
 				required: true,
 			},
 		],
@@ -91,70 +90,106 @@ export class Neo4jTemplateNode implements INodeType {
 	async execute(this: IExecuteFunctions): Promise<INodeExecutionData[][]> {
 		const items = this.getInputData();
 		const returnData: INodeExecutionData[] = [];
+		let driver: Driver | undefined; // Define driver
 		let session: Session | undefined;
+		const node = this.getNode(); // Get node instance for error reporting
 
 		try {
 			// 1. Get Credentials
-			// TODO: Use the correct credential name defined above
-			const credentials = await this.getCredentials('neo4jApi'); // Or 'neo4jMyActionApi'
+			// Use the credential name defined in description.credentials
+			const credentials = await this.getCredentials('neo4jApi') as ICredentialDataDecryptedObject;
 
-			// 2. Establish Neo4j Session
-			// TODO: Replace placeholder with robust connection logic (ideally a shared function)
-			const tempSession = (this.helpers as any).neo4j?.getSession?.(credentials);
-			if (!tempSession) {
-				throw new NodeOperationError(this.getNode(), 'Failed to establish Neo4j session.');
+			// 2. Validate Credentials (Basic Check)
+			if (!credentials || !credentials.host || !credentials.port || !credentials.username || typeof credentials.password === 'undefined') {
+				throw new NodeOperationError(node, 'Neo4j credentials are not fully configured or missing required fields (host, port, username, password).', { itemIndex: 0 });
 			}
-			session = tempSession; // Assign only after check
 
-			// 3. Loop Through Input Items (Adjust if node runs only once)
+			const uri = `${credentials.host}:${credentials.port}`;
+			const user = credentials.username as string;
+			const password = credentials.password as string;
+			const database = credentials.database as string || 'neo4j'; // Default to 'neo4j' if not provided
+
+			// 3. Establish Neo4j Connection (Correct Pattern)
+			// Based on nodes/neo4j/actions/router.ts and successful fix in Neo4jFindBusinessByName.node.ts
+			try {
+				driver = neo4j.driver(uri, auth.basic(user, password));
+				// Verify connectivity before opening session
+				await driver.verifyConnectivity();
+				this.logger.debug('Neo4j driver connected successfully.');
+				session = driver.session({ database });
+				this.logger.debug(`Neo4j session opened for database: ${database}`);
+			} catch (connectionError) {
+				this.logger.error('Failed to connect to Neo4j or open session:', connectionError);
+				// Use shared error parser for consistency
+				throw parseNeo4jError(node, connectionError, 'Failed to establish Neo4j connection or session.');
+			}
+
+			// 4. Loop Through Input Items (Adjust if node runs only once)
 			for (let i = 0; i < items.length; i++) {
 				try {
-					// 4. Get Input Parameters for Current Item
+					// 5. Get Input Parameters for Current Item
 					// TODO: Get all parameters defined in 'properties' using this.getNodeParameter(name, i, defaultValue)
 					// Example: const searchTerm = this.getNodeParameter('searchTerm', i, '') as string;
 
-					// 5. Define Specific Cypher Query & Parameters for this Action
+					// 6. Define Specific Cypher Query & Parameters for this Action
 					// TODO: Write the Cypher query for this node's specific task. Use $parameters.
 					const query = 'RETURN "Implement Cypher Query Here" AS message'; // Placeholder
 					const parameters: IDataObject = {}; // TODO: Populate with values from getNodeParameter
 					const isWrite = false; // TODO: Set to true for CREATE/MERGE/SET/DELETE
 
-					// 6. Execute Query
-					// Use non-null assertion '!' because session is checked above
-					const results = await runCypherQuery.call(this, session!, query, parameters, isWrite, i);
+					// 7. Execute Query
+					// Ensure session is defined before using it
+					if (!session) {
+						throw new NodeOperationError(node, 'Neo4j session is not available.', { itemIndex: i });
+					}
+					const results = await runCypherQuery.call(this, session, query, parameters, isWrite, i);
 					// results should be INodeExecutionData[]
 					returnData.push(...results);
 
-				} catch (error) {
-					// 7. Handle Item-Level Errors (Continue on Fail)
-					if (this.continueOnFail(error)) {
+				} catch (itemError) {
+					// 8. Handle Item-Level Errors (Continue on Fail)
+					if (this.continueOnFail(itemError)) {
 						const item = items[i];
-						const parsedError = parseNeo4jError(this.getNode(), error);
+						const parsedError = parseNeo4jError(node, itemError);
 						// Pass the parsed error object directly
 						const errorData = { ...item.json, error: parsedError };
-						returnData.push({ json: errorData, pairedItem: { item: i } });
+						// Use NodeOperationError for structured error reporting in the output
+						returnData.push({
+							json: errorData,
+							error: new NodeOperationError(node, parsedError.message, { itemIndex: i, description: parsedError.description ?? undefined }),
+							pairedItem: { item: i }
+						});
 						continue;
 					}
 					// Re-throw error to be caught by outer catch
-					throw error;
+					throw itemError;
 				}
 			}
 
-			// 8. Return Results
-			return [returnData];
+			// 9. Return Results (Use prepareOutputData for consistency)
+			return this.prepareOutputData(returnData);
 
 		} catch (error) {
-			// 9. Handle Node-Level Errors (e.g., connection)
+			// 10. Handle Node-Level Errors (e.g., connection, credential validation)
 			if (error instanceof NodeOperationError) { throw error; }
-			throw parseNeo4jError(this.getNode(), error);
+			// Parse other errors using the shared helper
+			throw parseNeo4jError(node, error);
 		} finally {
-			// 10. Close Session
+			// 11. Close Session and Driver (Crucial!)
 			if (session) {
 				try {
 					await session.close();
 					this.logger.debug('Neo4j session closed successfully.');
 				} catch (closeError) {
 					this.logger.error('Error closing Neo4j session:', closeError);
+				}
+			}
+			if (driver) { // Also close the driver
+				try {
+					await driver.close();
+					this.logger.debug('Neo4j driver closed successfully.');
+				} catch (closeError) {
+					this.logger.error('Error closing Neo4j driver:', closeError);
 				}
 			}
 		}
