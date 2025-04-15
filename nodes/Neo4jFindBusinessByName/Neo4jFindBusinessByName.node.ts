@@ -31,10 +31,11 @@ export class Neo4jFindBusinessByName implements INodeType {
 		},
 		inputs: ['main'],
 		outputs: ['main'],
-		// usableAsTool: true, // Keep commented out/removed as per user's successful load test
+		// @ts-ignore - Workaround: Suppress TS error for usableAsTool in this project context
+		usableAsTool: true,
 		credentials: [
 			{
-				name: 'neo4jFindBusinessByNameApi', // Using the specific credential name
+				name: 'neo4jApi', // Reverted to shared credential name
 				required: true,
 			},
 		],
@@ -58,8 +59,8 @@ export class Neo4jFindBusinessByName implements INodeType {
 		let session: Session | undefined;
 
 		try {
-			// Use the specific credential name defined above
-			const credentials = await this.getCredentials('neo4jFindBusinessByNamejApi');
+			// Use the shared credential name defined above
+			const credentials = await this.getCredentials('neo4jApi');
 			// TODO: Implement connection logic using credentials
 			const tempSession = (this.helpers as any).neo4j?.getSession?.(credentials);
 			if (!tempSession) {
