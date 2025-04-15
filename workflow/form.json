@@ -1,0 +1,281 @@
+{
+  "name": "form",
+  "nodes": [
+    {
+      "parameters": {
+        "formTitle": "商家管理",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "操作",
+              "fieldType": "dropdown",
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "新增"
+                  },
+                  {
+                    "option": "修改"
+                  },
+                  {
+                    "option": "刪除"
+                  }
+                ]
+              }
+            },
+            {
+              "fieldLabel": "商家名稱",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "商家擁有者",
+              "placeholder": "輸入你的 User ID",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "地址",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "電話",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "座位數",
+              "fieldType": "number"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.2,
+      "position": [
+        -480,
+        -40
+      ],
+      "id": "1961a9b2-77be-4542-8c11-529d19541ae3",
+      "name": "On form submission",
+      "webhookId": "7fae539b-0b37-4680-b5a5-dffad47125f0"
+    },
+    {
+      "parameters": {
+        "query": "MATCH (u:User {id: $ownerUserId})\nMERGE (b:Business {business_id: $businessId})\nON CREATE SET\n    b.name = $name,\n    b.type = $type,\n    b.address = $address,\n    b.phone = $phone,\n    b.email = $email,\n    b.description = $description,\n    b.created_at = datetime(),\n    b.updated_at = datetime(),\n    b.is_system = false\nON MATCH SET\n    b.name = $name,\n    b.type = $type,\n    b.address = $address,\n    b.phone = $phone,\n    b.email = $email,\n    b.description = $description,\n    b.updated_at = datetime()\nMERGE (u)-[:OWNS]->(b)\nRETURN b {.*, business_id: b.business_id} AS business",
+        "parameters": "={{ {\n  \"ownerUserId\": $json.body['商家擁有者'],\n  \"businessId\": 'biz-' + $runIndex + '-' + $now.toMillis(),\n  \"name\": $json.body['商家名稱'],\n  \"address\": $json.body['地址'],\n  \"phone\": $json.body['電話'],\n  \"type\": \"DefaultType\",\n  \"email\": \"default@example.com\",\n  \"description\": \"Default Description\"\n} }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-neo4jtool.neo4j",
+      "typeVersion": 1,
+      "position": [
+        20,
+        -200
+      ],
+      "id": "a0776fce-e44e-46e7-87bc-dfc804733c97",
+      "name": "新增",
+      "credentials": {
+        "neo4jApi": {
+          "id": "OxsZENly8YaQEyR4",
+          "name": "Neo4j account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "query": "MATCH (u:User {id: $ownerUserId})-[:OWNS]->(b:Business)\nWHERE b.name = $nameToMatch\nSET\n    b.name = $name,\n    b.type = $type,\n    b.address = $address,\n    b.phone = $phone,\n    b.email = $email,\n    b.description = $description,\n    b.updated_at = datetime()\nRETURN b {.*, business_id: b.business_id} AS business",
+        "parameters": "={{ {\n  \"ownerUserId\": $json.body['商家擁有者'],\n  \"nameToMatch\": $json.body['商家名稱'],\n  \"name\": $json.body['商家名稱'],\n  \"address\": $json.body['地址'],\n  \"phone\": $json.body['電話'],\n  \"type\": \"UpdatedType\",\n  \"email\": \"updated@example.com\",\n  \"description\": \"Updated Description\"\n} }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-neo4jtool.neo4j",
+      "typeVersion": 1,
+      "position": [
+        20,
+        0
+      ],
+      "id": "8bb5029d-476e-4915-9caf-df61d8556b36",
+      "name": "修改",
+      "credentials": {
+        "neo4jApi": {
+          "id": "OxsZENly8YaQEyR4",
+          "name": "Neo4j account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "query": "MATCH (u:User {id: $ownerUserId})-[:OWNS]->(b:Business)\nWHERE b.name = $nameToDelete\nDETACH DELETE b\nRETURN {deleted: true, businessName: $nameToDelete} AS result",
+        "parameters": "={{ {\n  \"ownerUserId\": $json.body['商家擁有者'],\n  \"nameToDelete\": $json.body['商家名稱']\n} }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-neo4jtool.neo4j",
+      "typeVersion": 1,
+      "position": [
+        20,
+        200
+      ],
+      "id": "2dfdf44e-be45-4517-99a8-c7e8366255ea",
+      "name": "刪除",
+      "credentials": {
+        "neo4jApi": {
+          "id": "OxsZENly8YaQEyR4",
+          "name": "Neo4j account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.body['操作'] }}",
+                    "rightValue": "新增",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "aaaf4248-50f2-4012-bf3f-74f26ed0f746"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "新增"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "84c43037-81cd-42ac-bf12-bd107d901ed0",
+                    "leftValue": "={{ $json.body['操作'] }}",
+                    "rightValue": "修改",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "修改"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "af5a6166-ab8d-4f66-98e2-f6241a940ec7",
+                    "leftValue": "={{ $json.body['操作'] }}",
+                    "rightValue": "刪除",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "刪除"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        -280,
+        -40
+      ],
+      "id": "c0c82e6b-cbc8-4536-8f1f-0b0b850f6990",
+      "name": "Switch"
+    }
+  ],
+  "pinData": {
+    "On form submission": [
+      {
+        "json": {
+          "操作": "修改",
+          "商家名稱": "ddd",
+          "商家擁有者": "ddd",
+          "地址": "ddd",
+          "電話": "dd",
+          "座位數": 2,
+          "submittedAt": "2025-04-14T01:14:58.762-04:00",
+          "formMode": "test"
+        }
+      }
+    ]
+  },
+  "connections": {
+    "On form submission": {
+      "main": [
+        [
+          {
+            "node": "Switch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch": {
+      "main": [
+        [
+          {
+            "node": "新增",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "修改",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "刪除",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "4964c64f-f0f5-4044-8ba4-4e36da19256d",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "6e5d961b5ab8924e287fc6d1a85a0a4b408d0fcb67963cef86e44b8085f20f41"
+  },
+  "id": "UoXYCGfmc8uatKuV",
+  "tags": []
+}

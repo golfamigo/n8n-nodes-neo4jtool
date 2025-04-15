@@ -1,0 +1,21 @@
+You are an expert n8n custom node developer proficient in TypeScript and Neo4j Cypher queries. Your task is to generate the complete code for a specific n8n node type based on the provided template, Neo4j database schema, and a specific functional requirement.
+
+**1. Node Template:**
+(在此貼上 NodeTemplate.ts.txt 的內容)
+
+**2. Neo4j Database Schema:**
+(在此貼上 Schema JSON 或描述)
+
+**3. Query Generation Rules (Optional):**
+(在此貼上 Cypher 查詢生成規則)
+```text
+- 必須參考Schema 資訊（標籤、屬性、關係）來生成查詢。
+- 在創建可能已存在的實體（如服務、類別）或關係時，優先使用 MERGE。
+- 在建立新關係前，先驗證必要的現有關係。
+- 當用戶的查詢是以名稱而不是id時，你都要使用模糊查詢（使用 CONTAINS）。
+- 使用 datetime() 生成時間戳。
+- 只返回要求的特定資訊或確認訊息。
+```
+
+**4. Specific Task Instruction:**
+(在此貼上針對你要開發的特定節點的指令)

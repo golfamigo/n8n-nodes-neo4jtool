@@ -45,6 +45,10 @@ export async function parseJsonParameter(this: IExecuteFunctions, param: string 
 	let parsedParam: IDataObject;
 	if (typeof param === 'string') {
 		try {
+			// Handle empty string explicitly, return empty object
+			if (param.trim() === '') {
+				return {};
+			}
 			parsedParam = jsonParse(param);
 		} catch (error) {
 			const node = this.getNode();
@@ -118,7 +122,7 @@ export function buildSetPropertiesClause(properties: IDataObject, paramPrefix = 
 }
 
 /**
- * Builds a Cypher WHERE clause string like WHERE alias.key1 = $param1 AND alias.key2 = $param2
+ * Builds a Cypher WHERE clause string. Uses CONTAINS for strings, = for others.
  * suitable for MATCH, UPDATE, DELETE operations.
  * Returns the WHERE clause string (including 'WHERE') and the parameters object.
  */
@@ -130,9 +134,20 @@ export function buildWhereClause(properties: IDataObject, alias: string, paramPr
 	for (const key in properties) {
 		if (Object.prototype.hasOwnProperty.call(properties, key)) {
 			const paramName = `${paramPrefix}${key}_${paramIndex++}`;
+			const value = properties[key]; // Get the value
+			parameters[paramName] = value; // Assign value to parameters
+
 			// Use backticks for alias and property names
-			conditions.push(`\`${alias}\`.\`${key.replace(/`/g, '``')}\` = $${paramName}`);
-			parameters[paramName] = properties[key];
+			const propertyRef = `\`${alias}\`.\`${key.replace(/`/g, '``')}\``;
+
+			// --- MODIFICATION START ---
+			// Check value type to decide operator
+			if (typeof value === 'string') {
+				conditions.push(`${propertyRef} CONTAINS $${paramName}`); // Use CONTAINS for strings
+			} else {
+				conditions.push(`${propertyRef} = $${paramName}`); // Use = for other types (number, boolean, etc.)
+			}
+			// --- MODIFICATION END ---
 		}
 	}
 

@@ -1,0 +1,140 @@
+import type {
+	IExecuteFunctions,
+	IDataObject,
+	INodeExecutionData,
+	INodeType,
+	INodeTypeDescription,
+	// Add other necessary types from n8n-workflow if needed
+} from 'n8n-workflow';
+import { NodeOperationError } from 'n8n-workflow';
+import type { Session } from 'neo4j-driver';
+
+// Import shared Neo4j helper functions
+// Assuming the new node file is located at nodes/YourNodeName/YourNodeName.node.ts
+// and helpers are at nodes/neo4j/helpers/
+import {
+	// connectToNeo4j, // TODO: Implement or import actual connection function
+	runCypherQuery,
+	parseNeo4jError,
+	// wrapNeo4jResult, // Not needed here, runCypherQuery handles it
+	// parseJsonParameter, // Import only if needed for specific parameters
+} from '../neo4j/helpers/utils';
+
+// Define the class for your new dedicated node type
+// TODO: Rename class (e.g., FindBusinessByName)
+// TODO: Rename file to match class or n8n convention (e.g., Neo4jFindBusinessByName.node.ts)
+export class TemplateNode implements INodeType {
+	// Define the node description for the n8n UI
+	description: INodeTypeDescription = {
+		displayName: 'Neo4j: My Action', // TODO: Set Display Name
+		name: 'neo4jMyAction', // TODO: Set technical node name (camelCase, unique)
+		icon: 'file:../neo4j/neo4j.svg', // Corrected path assuming new node is in nodes/NodeType/
+		group: ['database'], // TODO: Or create a new group like 'neo4jActions'
+		version: 1,
+		subtitle: '={{$parameter["someInput"]}}', // TODO: Adjust subtitle based on a key input parameter
+		description: 'Description of what this specific node does', // TODO: Set node description
+		defaults: {
+			name: 'Neo4j My Action', // TODO: Set default node instance name
+		},
+		inputs: ['main'], // Use string literal
+		outputs: ['main'], // Use string literal
+		// Mark as usable for AI Agent (using multiple instance pattern)
+		// @ts-ignore // Keep ts-ignore for potential type issues in some envs
+		usableAsTool: true,
+		// Define required credentials
+		credentials: [
+			{
+				name: 'neo4jApi', // Use the shared credential name
+				required: true,
+			},
+		],
+		// Define the input properties specific to this node's action
+		properties: [
+			// --- INPUT PARAMETERS ---
+			// TODO: Add the specific input parameters needed for THIS node's action
+			// Example:
+			// {
+			// 	displayName: 'Search Term',
+			// 	name: 'searchTerm',
+			// 	type: 'string',
+			// 	required: true,
+			// 	default: '',
+			// 	description: 'The term to search for in business names',
+			// },
+		],
+	};
+
+	// Optional: Define methods like loadOptions if needed
+	// methods = { ... };
+
+	// Define the execution logic for this node
+	async execute(this: IExecuteFunctions): Promise<INodeExecutionData[][]> {
+		const items = this.getInputData();
+		const returnData: INodeExecutionData[] = [];
+		let session: Session | undefined;
+
+		try {
+			const credentials = await this.getCredentials('neo4jApi');
+			// --- TODO: Implement robust connection logic ---
+			// Replace this placeholder with actual session acquisition
+			// Consider creating a shared connectToNeo4j function in utils.ts
+			const tempSession = (this.helpers as any).neo4j?.getSession?.(credentials); // Placeholder attempt
+			if (!tempSession) {
+				// Throw error if session is not obtained
+				throw new NodeOperationError(this.getNode(), 'Failed to establish Neo4j session. Check connection logic.');
+			}
+			// Assign session *after* the check
+			session = tempSession;
+
+			// Loop or process items as needed
+			for (let i = 0; i < items.length; i++) {
+				try {
+					// --- Get Node Specific Parameters ---
+					// TODO: Get all parameters defined in 'properties' for index 'i'
+					// Example: const searchTerm = this.getNodeParameter('searchTerm', i, '') as string;
+
+					// --- Define Specific Cypher Query & Parameters ---
+					// TODO: Define the Cypher query and parameters specific to THIS node's action
+					const query = 'RETURN "Implement Cypher Query Here" AS message'; // Placeholder
+					const parameters: IDataObject = {}; // Placeholder
+					const isWrite = false; // Set to true if query modifies data
+
+					// --- Execute Query using Shared Function ---
+					// Use non-null assertion '!' as session is guaranteed non-undefined here
+					const results = await runCypherQuery.call(this, session!, query, parameters, isWrite, i);
+					// results from runCypherQuery should already be INodeExecutionData[]
+					returnData.push(...results);
+
+				} catch (error) {
+					if (this.continueOnFail(error)) {
+						const item = items[i];
+						const parsedError = parseNeo4jError(this.getNode(), error);
+						// Pass the parsed error object directly
+						const errorData = { ...item.json, error: parsedError };
+						returnData.push({ json: errorData, pairedItem: { item: i } });
+						continue;
+					}
+					// Re-throw error to be caught by outer catch
+					throw error;
+				}
+			}
+
+			return [returnData];
+
+		} catch (error) {
+			// Handle node execution errors (connection, etc.)
+			if (error instanceof NodeOperationError) { throw error; }
+			throw parseNeo4jError(this.getNode(), error);
+		} finally {
+			// --- Close Session ---
+			if (session) {
+				try {
+					await session.close();
+					this.logger.debug('Neo4j session closed successfully.');
+				} catch (closeError) {
+					this.logger.error('Error closing Neo4j session:', closeError);
+				}
+			}
+		}
+	}
+}
