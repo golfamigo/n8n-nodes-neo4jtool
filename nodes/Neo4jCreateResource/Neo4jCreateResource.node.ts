@@ -159,7 +159,7 @@ export class Neo4jCreateResource implements INodeType {
 							type: $type,
 							name: $name,
 							capacity: $capacity,
-							properties: $properties,
+							properties: $propertiesJsonString,
 							created_at: datetime()
 						})
 						MERGE (b)-[:HAS_RESOURCE]->(r)
@@ -170,7 +170,7 @@ export class Neo4jCreateResource implements INodeType {
 						type,
 						name,
 						capacity: capacity !== undefined ? neo4j.int(capacity) : null, // Convert to Neo4j Integer or null
-						properties, // Pass parsed JSON object
+						propertiesJsonString: JSON.stringify(properties),
 					};
 					const isWrite = true; // This is a write operation (CREATE)
 

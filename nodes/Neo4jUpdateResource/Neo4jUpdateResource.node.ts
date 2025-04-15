@@ -153,8 +153,8 @@ export class Neo4jUpdateResource implements INodeType {
 							}
 							// Merge properties instead of overwriting: r.properties = $properties
 							// Or use SET r += $properties for merging (requires properties param to be a map)
-							setClauses.push('r.properties = $properties');
-							parameters.properties = properties;
+							setClauses.push('r.properties = $propertiesJsonString');
+							parameters.propertiesJsonString = JSON.stringify(properties);
 						} catch (jsonError) {
 							throw new NodeOperationError(node, `Invalid JSON in Properties field: ${jsonError.message}`, { itemIndex: i });
 						}
