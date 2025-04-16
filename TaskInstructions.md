@@ -673,4 +673,4 @@
 - **核心邏輯**: `execute` 方法應 `MATCH (bk:Booking {booking_id: $bookingId}) DETACH DELETE bk`。
 
 ---
-*(請根據 `neo4j_common_operations.md` 為其他需要的操作補充類似的指令)*
+*(基本上我們是一個chatbot的存在，chatbot透過n8n的mcp server節點把我們的節點當作工具使用，所以每個人一開始與chatbot交互時，我們就會馬上知道他是誰，也會在第一次與chatbot談話時就被自動建立為user，而externalID就是user在通信app上的userid,所以說他肯定會是唯一碼，我們必須善用這一個特點，讓externalID可以貫穿關係鏈)*
