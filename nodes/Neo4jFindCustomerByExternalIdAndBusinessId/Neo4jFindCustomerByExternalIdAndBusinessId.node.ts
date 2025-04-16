@@ -58,16 +58,7 @@ export class Neo4jFindCustomerByExternalIdAndBusinessId implements INodeType {
 				description: '客戶註冊的商家 ID',
 			},
 			// Removed other search criteria
-			{
-				displayName: 'Limit', // Keep limit for safety, though usually expects 1 result
-				name: 'limit',
-				type: 'number',
-				typeOptions: {
-					minValue: 1,
-				},
-				default: 50,
-				description: 'Max number of results to return',
-			},
+
 		],
 	};
 
@@ -108,17 +99,14 @@ export class Neo4jFindCustomerByExternalIdAndBusinessId implements INodeType {
 					// 5. Get Input Parameters
 					const externalId = this.getNodeParameter('externalId', i, '') as string;
 					const businessId = this.getNodeParameter('businessId', i, '') as string;
-					const limit = this.getNodeParameter('limit', i, 1) as number;
-
 
 					// 6. Define Cypher Query
-					// Updated query based on externalId and businessId
+					// Updated query based on externalId and businessId - CORRECTED RELATION DIRECTION
 					const query = `
-						MATCH (u:User {external_id: $externalId})-[:HAS_USER_ACCOUNT]->(c:Customer)-[:REGISTERED_WITH]->(b:Business {business_id: $businessId})
+						MATCH (b:Business {business_id: $businessId})<-[:REGISTERED_WITH]-(c:Customer)-[:HAS_USER_ACCOUNT]->(u:User {external_id: $externalId})
 						RETURN c {.*} AS customer
-						LIMIT $limit
 					`;
-					const parameters: IDataObject = { externalId, businessId, limit: neo4j.int(limit) };
+					const parameters: IDataObject = { externalId, businessId };
 					const isWrite = false;
 
 					// 7. Execute Query

@@ -185,7 +185,7 @@ export class Neo4jFindAvailableSlots implements INodeType {
 				name: 'requiredResourceCapacity',
 				type: 'number',
 				typeOptions: { numberStep: 1 },
-				default: undefined,
+				default: null, // Changed default from undefined to null
 				description: '如果需要特定資源容量 (例如預約人數) (可選)',
 			},
 			{
@@ -215,8 +215,10 @@ export class Neo4jFindAvailableSlots implements INodeType {
 			const endDateTimeStr = this.getNodeParameter('endDateTime', itemIndex, '') as string;
 			const intervalMinutes = this.getNodeParameter('intervalMinutes', itemIndex, 15) as number;
 			const requiredResourceType = this.getNodeParameter('requiredResourceType', itemIndex, '') as string;
-			const requiredResourceCapacity = this.getNodeParameter('requiredResourceCapacity', itemIndex, undefined) as number | undefined;
+			const requiredResourceCapacity = this.getNodeParameter('requiredResourceCapacity', itemIndex, null) as number | null; // Changed default from undefined to null
 			const requiredStaffId = this.getNodeParameter('requiredStaffId', itemIndex, '') as string;
+			// ADDED: Log received parameters
+			this.logger.debug(`Executing FindAvailableSlots with params: businessId="${businessId}", serviceId="${serviceId}", startDateTime="${startDateTimeStr}", endDateTime="${endDateTimeStr}", intervalMinutes=${intervalMinutes}, requiredResourceType="${requiredResourceType}", requiredResourceCapacity=${requiredResourceCapacity}, requiredStaffId="${requiredStaffId}"`);
 
 			// 2. Validate Credentials & Dates
 			if (!credentials || !credentials.host || !credentials.port || !credentials.username || typeof credentials.password === 'undefined') {

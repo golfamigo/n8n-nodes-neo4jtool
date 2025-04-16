@@ -106,6 +106,15 @@ export class Neo4jCreateBusiness implements INodeType {
 				default: '',
 				description: '商家描述',
 			},
+			{ // MODIFIED booking_mode type
+				displayName: 'Booking Mode',
+				name: 'booking_mode',
+				type: 'string', // Changed from 'options' to 'string' for AI compatibility
+				// options removed
+				required: true, // Required for creation
+				default: 'TimeOnly', // Default to TimeOnly
+				description: '商家的預約檢查模式 (ResourceOnly, StaffOnly, StaffAndResource, TimeOnly)', // Added options in description
+			},
 		],
 	};
 
@@ -116,6 +125,7 @@ export class Neo4jCreateBusiness implements INodeType {
 		let driver: Driver | undefined;
 		let session: Session | undefined;
 		const node = this.getNode();
+		const validBookingModes = ['ResourceOnly', 'StaffOnly', 'StaffAndResource', 'TimeOnly']; // Define valid modes
 
 		try {
 			// 1. Get Credentials
@@ -154,10 +164,15 @@ export class Neo4jCreateBusiness implements INodeType {
 					const phone = this.getNodeParameter('phone', i, '') as string;
 					const email = this.getNodeParameter('email', i, '') as string;
 					const description = this.getNodeParameter('description', i, '') as string;
-					const is_system = this.getNodeParameter('is_system', i, false) as boolean;
+					const booking_mode = this.getNodeParameter('booking_mode', i, 'TimeOnly') as string; // Added booking_mode reading
+
+					// ADDED: Validate booking_mode
+					if (!validBookingModes.includes(booking_mode)) {
+						throw new NodeOperationError(node, `Invalid booking_mode: "${booking_mode}". Valid modes are: ${validBookingModes.join(', ')}`, { itemIndex: i });
+					}
 
 					// 6. Define Specific Cypher Query & Parameters
-					// Query from TaskInstructions.md
+					// Query from TaskInstructions.md, adapted
 					const query = `
 						MATCH (owner:User {id: $ownerUserId})
 						CREATE (b:Business {
@@ -168,7 +183,7 @@ export class Neo4jCreateBusiness implements INodeType {
 							phone: $phone,
 							email: $email,
 							description: $description,
-							is_system: $is_system,
+							booking_mode: $booking_mode, // Added booking_mode
 							created_at: datetime()
 						})
 						MERGE (owner)-[:OWNS]->(b)
@@ -182,7 +197,7 @@ export class Neo4jCreateBusiness implements INodeType {
 						phone,
 						email,
 						description,
-						is_system,
+						booking_mode, // Added booking_mode
 					};
 					const isWrite = true; // This is a write operation (CREATE)
 

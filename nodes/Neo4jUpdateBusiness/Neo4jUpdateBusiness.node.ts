@@ -61,7 +61,6 @@ export class Neo4jUpdateBusiness implements INodeType {
 				displayName: 'Name',
 				name: 'name',
 				type: 'string',
-
 				default: '',
 				description: '新的商家名稱 (可選)',
 			},
@@ -69,7 +68,6 @@ export class Neo4jUpdateBusiness implements INodeType {
 				displayName: 'Type',
 				name: 'type',
 				type: 'string',
-
 				default: '',
 				description: '新的商家類型 (可選)',
 			},
@@ -77,7 +75,6 @@ export class Neo4jUpdateBusiness implements INodeType {
 				displayName: 'Address',
 				name: 'address',
 				type: 'string',
-
 				default: '',
 				description: '新的商家地址 (可選)',
 			},
@@ -85,7 +82,6 @@ export class Neo4jUpdateBusiness implements INodeType {
 				displayName: 'Phone',
 				name: 'phone',
 				type: 'string',
-
 				default: '',
 				description: '新的商家聯繫電話 (可選)',
 			},
@@ -93,7 +89,6 @@ export class Neo4jUpdateBusiness implements INodeType {
 				displayName: 'Email',
 				name: 'email',
 				type: 'string',
-
 				default: '',
 				placeholder: 'name@email.com',
 				description: '新的商家聯繫電子郵件 (可選)',
@@ -102,18 +97,18 @@ export class Neo4jUpdateBusiness implements INodeType {
 				displayName: 'Description',
 				name: 'description',
 				type: 'string',
-
 				default: '',
 				description: '新的商家描述 (可選)',
 			},
-			{
-				displayName: 'Business Hours',
-				name: 'business_hours',
-				type: 'string',
-
-				default: '',
-				description: '新的商家營業時間 (可選)',
+			{ // MODIFIED booking_mode type
+				displayName: 'Booking Mode',
+				name: 'booking_mode',
+				type: 'string', // Changed from 'options' to 'string' for AI compatibility
+				// options removed
+				default: '', // Default to empty for update, meaning no change unless specified
+				description: '新的商家預約檢查模式 (可選: ResourceOnly, StaffOnly, StaffAndResource, TimeOnly)', // Added options in description
 			},
+			// REMOVED business_hours as it's handled by separate nodes
 		],
 	};
 
@@ -124,6 +119,7 @@ export class Neo4jUpdateBusiness implements INodeType {
 		let driver: Driver | undefined;
 		let session: Session | undefined;
 		const node = this.getNode();
+		const validBookingModes = ['ResourceOnly', 'StaffOnly', 'StaffAndResource', 'TimeOnly']; // Define valid modes
 
 		try {
 			// 1. Get Credentials
@@ -162,7 +158,12 @@ export class Neo4jUpdateBusiness implements INodeType {
 					const phone = this.getNodeParameter('phone', i, undefined) as string | undefined;
 					const email = this.getNodeParameter('email', i, undefined) as string | undefined;
 					const description = this.getNodeParameter('description', i, undefined) as string | undefined;
-					const is_system = this.getNodeParameter('is_system', i, undefined) as boolean | undefined;
+					const booking_mode = this.getNodeParameter('booking_mode', i, undefined) as string | undefined; // Added booking_mode reading
+
+					// ADDED: Validate booking_mode if provided
+					if (booking_mode !== undefined && booking_mode !== '' && !validBookingModes.includes(booking_mode)) {
+						throw new NodeOperationError(node, `Invalid booking_mode: "${booking_mode}". Valid modes are: ${validBookingModes.join(', ')}`, { itemIndex: i });
+					}
 
 					// Build SET clause dynamically based on provided parameters
 					const setClauses: string[] = [];
@@ -174,7 +175,7 @@ export class Neo4jUpdateBusiness implements INodeType {
 					if (phone !== undefined && phone !== '') { setClauses.push('b.phone = $phone'); parameters.phone = phone; }
 					if (email !== undefined && email !== '') { setClauses.push('b.email = $email'); parameters.email = email; }
 					if (description !== undefined && description !== '') { setClauses.push('b.description = $description'); parameters.description = description; }
-					if (is_system !== undefined) { setClauses.push('b.is_system = $is_system'); parameters.is_system = is_system; }
+					if (booking_mode !== undefined && booking_mode !== '') { setClauses.push('b.booking_mode = $booking_mode'); parameters.booking_mode = booking_mode; } // Added booking_mode to SET
 
 					if (setClauses.length === 0) {
 						// If no optional parameters are provided, maybe just return the existing node or throw an error?
