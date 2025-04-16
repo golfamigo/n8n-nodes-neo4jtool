@@ -24,7 +24,7 @@ export class Neo4jFindCustomerByExternalIdAndBusinessId implements INodeType {
 
 	// --- Node Description for n8n UI ---
 	description: INodeTypeDescription = {
-		displayName: 'Neo4j: Find Customer by External ID & Business ID', // Changed
+		displayName: 'Neo4j Find Customer by External ID & Business ID', // Changed
 		name: 'neo4jFindCustomerByExternalIdAndBusinessId', // Changed
 		icon: 'file:../neo4j/neo4j.svg',
 		group: ['database'],

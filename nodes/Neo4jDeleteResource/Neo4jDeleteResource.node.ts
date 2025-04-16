@@ -23,7 +23,7 @@ export class Neo4jDeleteResource implements INodeType {
 
 	// --- Node Description for n8n UI ---
 	description: INodeTypeDescription = {
-		displayName: 'Neo4j: Delete Resource', // From TaskInstructions.md
+		displayName: 'Neo4j Delete Resource', // From TaskInstructions.md
 		name: 'neo4jDeleteResource', // From TaskInstructions.md
 		icon: 'file:../neo4j/neo4j.svg',
 		group: ['database'],

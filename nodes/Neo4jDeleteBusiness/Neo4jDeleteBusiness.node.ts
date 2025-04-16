@@ -23,7 +23,7 @@ export class Neo4jDeleteBusiness implements INodeType {
 
 	// --- Node Description for n8n UI ---
 	description: INodeTypeDescription = {
-		displayName: 'Neo4j: Delete Business', // From TaskInstructions.md
+		displayName: 'Neo4j Delete Business', // From TaskInstructions.md
 		name: 'neo4jDeleteBusiness', // From TaskInstructions.md
 		icon: 'file:../neo4j/neo4j.svg', // Point to the icon in the shared neo4j folder
 		group: ['database'],

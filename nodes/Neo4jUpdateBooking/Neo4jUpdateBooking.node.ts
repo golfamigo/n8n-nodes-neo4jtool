@@ -23,7 +23,7 @@ export class Neo4jUpdateBooking implements INodeType {
 
 	// --- Node Description for n8n UI ---
 	description: INodeTypeDescription = {
-		displayName: 'Neo4j: Update Booking', // From TaskInstructions.md
+		displayName: 'Neo4j Update Booking', // From TaskInstructions.md
 		name: 'neo4jUpdateBooking', // From TaskInstructions.md
 		icon: 'file:../neo4j/neo4j.svg',
 		group: ['database'],

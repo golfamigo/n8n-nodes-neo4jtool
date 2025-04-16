@@ -23,7 +23,7 @@ export class Neo4jFindStaffByExternalId implements INodeType {
 
 	// --- Node Description for n8n UI ---
 	description: INodeTypeDescription = {
-		displayName: 'Neo4j: Find Staff by External ID',
+		displayName: 'Neo4j Find Staff by External ID',
 		name: 'neo4jFindStaffByExternalId',
 		icon: 'file:../neo4j/neo4j.svg',
 		group: ['database'],

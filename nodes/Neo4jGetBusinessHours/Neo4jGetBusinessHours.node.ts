@@ -23,7 +23,7 @@ export class Neo4jGetBusinessHours implements INodeType {
 
 	// --- Node Description for n8n UI ---
 	description: INodeTypeDescription = {
-		displayName: 'Neo4j: Get Business Hours',
+		displayName: 'Neo4j Get Business Hours',
 		name: 'neo4jGetBusinessHours',
 		icon: 'file:../neo4j/neo4j.svg',
 		group: ['database'],

@@ -23,7 +23,7 @@ export class Neo4jSetStaffAvailability implements INodeType {
 
 	// --- Node Description for n8n UI ---
 	description: INodeTypeDescription = {
-		displayName: 'Neo4j: Set Staff Availability',
+		displayName: 'Neo4j Set Staff Availability',
 		name: 'neo4jSetStaffAvailability',
 		icon: 'file:../neo4j/neo4j.svg',
 		group: ['database'],

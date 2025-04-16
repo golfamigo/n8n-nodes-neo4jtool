@@ -22,7 +22,7 @@ export class Neo4jDeleteStaff implements INodeType {
 
 	// --- Node Description for n8n UI ---
 	description: INodeTypeDescription = {
-		displayName: 'Neo4j: Delete Staff',
+		displayName: 'Neo4j Delete Staff',
 		name: 'neo4jDeleteStaff',
 		icon: 'file:../neo4j/neo4j.svg',
 		group: ['database'],

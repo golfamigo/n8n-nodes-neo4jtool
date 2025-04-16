@@ -117,7 +117,7 @@ export class Neo4jFindAvailableSlots implements INodeType {
 
 	// --- Node Description for n8n UI ---
 	description: INodeTypeDescription = {
-		displayName: 'Neo4j: Find Available Slots',
+		displayName: 'Neo4j Find Available Slots',
 		name: 'neo4jFindAvailableSlots',
 		icon: 'file:../neo4j/neo4j.svg',
 		group: ['database'],

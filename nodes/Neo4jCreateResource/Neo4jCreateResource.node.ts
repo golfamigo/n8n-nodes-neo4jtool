@@ -24,7 +24,7 @@ export class Neo4jCreateResource implements INodeType {
 
 	// --- Node Description for n8n UI ---
 	description: INodeTypeDescription = {
-		displayName: 'Neo4j: Create Resource', // From TaskInstructions.md
+		displayName: 'Neo4j Create Resource', // From TaskInstructions.md
 		name: 'neo4jCreateResource', // From TaskInstructions.md
 		icon: 'file:../neo4j/neo4j.svg',
 		group: ['database'],

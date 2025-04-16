@@ -23,7 +23,7 @@ export class Neo4jLinkStaffToUser implements INodeType {
 
 	// --- Node Description for n8n UI ---
 	description: INodeTypeDescription = {
-		displayName: 'Neo4j: Link Staff to User',
+		displayName: 'Neo4j Link Staff to User',
 		name: 'neo4jLinkStaffToUser',
 		icon: 'file:../neo4j/neo4j.svg',
 		group: ['database'],

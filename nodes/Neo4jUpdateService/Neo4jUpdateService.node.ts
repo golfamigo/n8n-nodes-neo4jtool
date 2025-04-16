@@ -23,7 +23,7 @@ export class Neo4jUpdateService implements INodeType {
 
 	// --- Node Description for n8n UI ---
 	description: INodeTypeDescription = {
-		displayName: 'Neo4j: Update Service', // From TaskInstructions.md
+		displayName: 'Neo4j Update Service', // From TaskInstructions.md
 		name: 'neo4jUpdateService', // From TaskInstructions.md
 		icon: 'file:../neo4j/neo4j.svg', // Point to the icon in the shared neo4j folder
 		group: ['database'],

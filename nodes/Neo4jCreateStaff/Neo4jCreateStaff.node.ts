@@ -23,7 +23,7 @@ export class Neo4jCreateStaff implements INodeType {
 
 	// --- Node Description for n8n UI ---
 	description: INodeTypeDescription = {
-		displayName: 'Neo4j: Create Staff',
+		displayName: 'Neo4j Create Staff',
 		name: 'neo4jCreateStaff',
 		icon: 'file:../neo4j/neo4j.svg',
 		group: ['database'],

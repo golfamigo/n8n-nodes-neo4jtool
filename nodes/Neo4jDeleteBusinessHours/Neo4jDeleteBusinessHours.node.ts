@@ -22,7 +22,7 @@ export class Neo4jDeleteBusinessHours implements INodeType {
 
 	// --- Node Description for n8n UI ---
 	description: INodeTypeDescription = {
-		displayName: 'Neo4j: Delete Business Hours',
+		displayName: 'Neo4j Delete Business Hours',
 		name: 'neo4jDeleteBusinessHours',
 		icon: 'file:../neo4j/neo4j.svg',
 		group: ['database'],

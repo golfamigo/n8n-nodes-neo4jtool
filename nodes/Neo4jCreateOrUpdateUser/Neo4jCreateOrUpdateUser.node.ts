@@ -23,7 +23,7 @@ export class Neo4jCreateOrUpdateUser implements INodeType {
 
 	// --- Node Description for n8n UI ---
 	description: INodeTypeDescription = {
-		displayName: 'Neo4j: Create/Update User', // From TaskInstructions.md
+		displayName: 'Neo4j Create or Update User', // From TaskInstructions.md
 		name: 'neo4jCreateOrUpdateUser', // From TaskInstructions.md
 		icon: 'file:../neo4j/neo4j.svg', // Point to the icon in the shared neo4j folder
 		group: ['database'],

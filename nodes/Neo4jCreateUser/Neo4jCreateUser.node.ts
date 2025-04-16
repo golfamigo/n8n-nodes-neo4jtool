@@ -23,7 +23,7 @@ export class Neo4jCreateUser implements INodeType {
 
 	// --- Node Description for n8n UI ---
 	description: INodeTypeDescription = {
-		displayName: 'Neo4j: Create User', // Changed
+		displayName: 'Neo4j Create User', // Changed
 		name: 'neo4jCreateUser', // Changed
 		icon: 'file:../neo4j/neo4j.svg',
 		group: ['database'],

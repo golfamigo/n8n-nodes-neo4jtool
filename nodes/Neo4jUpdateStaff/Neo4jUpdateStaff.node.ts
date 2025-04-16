@@ -23,7 +23,7 @@ export class Neo4jUpdateStaff implements INodeType {
 
 	// --- Node Description for n8n UI ---
 	description: INodeTypeDescription = {
-		displayName: 'Neo4j: Update Staff',
+		displayName: 'Neo4j Update Staff',
 		name: 'neo4jUpdateStaff',
 		icon: 'file:../neo4j/neo4j.svg',
 		group: ['database'],

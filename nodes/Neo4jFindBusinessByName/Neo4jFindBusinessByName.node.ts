@@ -19,7 +19,7 @@ import {
 export class Neo4jFindBusinessByName implements INodeType {
 	// Define the node description for the n8n UI
 	description: INodeTypeDescription = {
-		displayName: 'Neo4j: Find Business by Name',
+		displayName: 'Neo4j Find Business by Name',
 		name: 'neo4jFindBusinessByName',
 		icon: 'file:neo4j.svg', // Path relative to this file
 		group: ['database'],
