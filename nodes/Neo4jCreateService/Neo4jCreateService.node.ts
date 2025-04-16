@@ -80,7 +80,7 @@ export class Neo4jCreateService implements INodeType {
 				displayName: 'Description',
 				name: 'description',
 				type: 'string',
-				required: true, // As per TaskInstructions
+				required: true, // Added back as requested
 				default: '',
 				description: '服務描述',
 			},

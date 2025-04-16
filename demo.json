@@ -1,0 +1,97 @@
+{
+  "name": "booking MCP",
+  "nodes": [
+    {
+      "parameters": {
+        "userId": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('User_ID', ``, 'string') }}",
+        "email": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Email', ``, 'string') }}",
+        "phone": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Phone', ``, 'string') }}"
+      },
+      "type": "n8n-nodes-neo4jtool.neo4jUpdateUserTool",
+      "typeVersion": 1,
+      "position": [
+        -880,
+        -180
+      ],
+      "id": "10800aef-3422-4bb3-a3aa-479583dcf7f3",
+      "name": "Neo4j Update User",
+      "credentials": {
+        "neo4jApi": {
+          "id": "OxsZENly8YaQEyR4",
+          "name": "Neo4j account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "external_id": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('External_ID', ``, 'string') }}",
+        "email": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Email', ``, 'string') }}",
+        "phone": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Phone', ``, 'string') }}"
+      },
+      "type": "n8n-nodes-neo4jtool.neo4jCreateUserTool",
+      "typeVersion": 1,
+      "position": [
+        -1020,
+        -180
+      ],
+      "id": "368638af-0171-4bd3-b8af-6af0f6bc9aca",
+      "name": "Neo4j Create User",
+      "credentials": {
+        "neo4jApi": {
+          "id": "OxsZENly8YaQEyR4",
+          "name": "Neo4j account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "path": "booking"
+      },
+      "type": "@n8n/n8n-nodes-langchain.mcpTrigger",
+      "typeVersion": 1,
+      "position": [
+        -300,
+        -400
+      ],
+      "id": "fdf5360e-6cde-48dd-a84d-7e1122467b22",
+      "name": "MCP Server Trigger",
+      "webhookId": "769d00ab-f067-49c6-901f-0d308bd8adc2"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Neo4j Update User": {
+      "ai_tool": [
+        [
+          {
+            "node": "MCP Server Trigger",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Neo4j Create User": {
+      "ai_tool": [
+        [
+          {
+            "node": "MCP Server Trigger",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "710981f4-9acf-4d52-8657-7e0b73b8c8c8",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "6e5d961b5ab8924e287fc6d1a85a0a4b408d0fcb67963cef86e44b8085f20f41"
+  },
+  "id": "PRRPNuME1mwCvyHw",
+  "tags": []
+}
