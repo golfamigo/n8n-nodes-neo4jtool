@@ -79,7 +79,7 @@ export class Neo4jCreateBooking implements INodeType {
 				type: 'string', // Keep as string for ISO8601
 				required: true,
 				default: '',
-				description: '預約開始時間 (ISO 8601 格式，例如 2025-04-15T10:00:00+08:00)',
+				description: '預約開始時間 (ISO 8601 格式，需含時區)',
 			},
 			{
 				displayName: 'Staff ID',

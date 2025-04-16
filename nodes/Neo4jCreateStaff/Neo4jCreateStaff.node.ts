@@ -1,5 +1,5 @@
 // ============================================================================
-// N8N Neo4j Node: Create Business
+// N8N Neo4j Node: Create Staff
 // ============================================================================
 import type {
 	IExecuteFunctions,
@@ -16,46 +16,36 @@ import neo4j, { Driver, Session, auth } from 'neo4j-driver';
 import {
 	runCypherQuery,
 	parseNeo4jError,
-} from '../neo4j/helpers/utils'; // Adjusted path relative to new location
+} from '../neo4j/helpers/utils';
 
 // --- Node Class Definition ---
-export class Neo4jCreateBusiness implements INodeType {
+export class Neo4jCreateStaff implements INodeType {
 
 	// --- Node Description for n8n UI ---
 	description: INodeTypeDescription = {
-		displayName: 'Neo4j: Create Business', // From TaskInstructions.md
-		name: 'neo4jCreateBusiness', // From TaskInstructions.md
-		icon: 'file:../neo4j/neo4j.svg', // Point to the icon in the shared neo4j folder
+		displayName: 'Neo4j: Create Staff',
+		name: 'neo4jCreateStaff',
+		icon: 'file:../neo4j/neo4j.svg',
 		group: ['database'],
 		version: 1,
-		subtitle: '={{$parameter["name"]}}', // Show business name in subtitle
-		description: '創建一個新的商家記錄並關聯所有者。', // From TaskInstructions.md
+		subtitle: '={{$parameter["name"]}} for Business {{$parameter["businessId"]}}',
+		description: '為指定商家創建一個新的員工記錄。',
 		defaults: {
-			name: 'Neo4j Create Business',
+			name: 'Neo4j Create Staff',
 		},
 		inputs: ['main'],
 		outputs: ['main'],
 		// @ts-ignore - Workaround
 		usableAsTool: true,
-
-		// --- Credentials ---
-		credentials: [
-			{
-				name: 'neo4jApi',
-				required: true,
-			},
-		],
-
-		// --- Node Specific Input Properties ---
+		credentials: [ { name: 'neo4jApi', required: true } ],
 		properties: [
-			// Parameters from TaskInstructions.md
 			{
-				displayName: 'Owner User ID',
-				name: 'ownerUserId',
+				displayName: 'Business ID',
+				name: 'businessId',
 				type: 'string',
 				required: true,
 				default: '',
-				description: '關聯的 User 節點的內部 ID (不是 external_id)',
+				description: '員工所屬的商家 ID',
 			},
 			{
 				displayName: 'Name',
@@ -63,48 +53,22 @@ export class Neo4jCreateBusiness implements INodeType {
 				type: 'string',
 				required: true,
 				default: '',
-				description: '商家名稱',
-			},
-			{
-				displayName: 'Type',
-				name: 'type',
-				type: 'string',
-				required: true,
-				default: '',
-				description: '商家類型 (例如 Salon, Clinic)',
-			},
-			{
-				displayName: 'Address',
-				name: 'address',
-				type: 'string',
-				required: true, // Changed to required based on feedback
-				default: '',
-				description: '商家地址',
-			},
-			{
-				displayName: 'Phone',
-				name: 'phone',
-				type: 'string',
-				required: true, // Changed to required based on feedback
-				default: '',
-				description: '商家聯繫電話',
+				description: '員工姓名',
 			},
 			{
 				displayName: 'Email',
 				name: 'email',
 				type: 'string',
-				required: true, // Changed to required based on feedback
 				default: '',
-				placeholder: 'name@email.com',
-				description: '商家聯繫電子郵件',
+				placeholder: 'staff@email.com',
+				description: '員工電子郵件 (可選)',
 			},
 			{
-				displayName: 'Description',
-				name: 'description',
+				displayName: 'Phone',
+				name: 'phone',
 				type: 'string',
-				required: true, // Changed to required based on feedback
 				default: '',
-				description: '商家描述',
+				description: '員工電話號碼 (可選)',
 			},
 		],
 	};
@@ -123,7 +87,7 @@ export class Neo4jCreateBusiness implements INodeType {
 
 			// 2. Validate Credentials
 			if (!credentials || !credentials.host || !credentials.port || !credentials.username || typeof credentials.password === 'undefined') {
-				throw new NodeOperationError(node, 'Neo4j credentials are not fully configured or missing required fields (host, port, username, password).', { itemIndex: 0 });
+				throw new NodeOperationError(node, 'Neo4j credentials are not fully configured.', { itemIndex: 0 });
 			}
 
 			const uri = `${credentials.host}:${credentials.port}`;
@@ -135,56 +99,41 @@ export class Neo4jCreateBusiness implements INodeType {
 			try {
 				driver = neo4j.driver(uri, auth.basic(user, password));
 				await driver.verifyConnectivity();
-				this.logger.debug('Neo4j driver connected successfully.');
 				session = driver.session({ database });
-				this.logger.debug(`Neo4j session opened for database: ${database}`);
 			} catch (connectionError) {
-				this.logger.error('Failed to connect to Neo4j or open session:', connectionError);
-				throw parseNeo4jError(node, connectionError, 'Failed to establish Neo4j connection or session.');
+				throw parseNeo4jError(node, connectionError, 'Failed to establish Neo4j connection.');
 			}
 
 			// 4. Loop Through Input Items
 			for (let i = 0; i < items.length; i++) {
 				try {
 					// 5. Get Input Parameters
-					const ownerUserId = this.getNodeParameter('ownerUserId', i, '') as string;
+					const businessId = this.getNodeParameter('businessId', i, '') as string;
 					const name = this.getNodeParameter('name', i, '') as string;
-					const type = this.getNodeParameter('type', i, '') as string;
-					const address = this.getNodeParameter('address', i, '') as string;
-					const phone = this.getNodeParameter('phone', i, '') as string;
 					const email = this.getNodeParameter('email', i, '') as string;
-					const description = this.getNodeParameter('description', i, '') as string;
-					const is_system = this.getNodeParameter('is_system', i, false) as boolean;
+					const phone = this.getNodeParameter('phone', i, '') as string;
 
-					// 6. Define Specific Cypher Query & Parameters
-					// Query from TaskInstructions.md
+					// 6. Define Cypher Query & Parameters
 					const query = `
-						MATCH (owner:User {id: $ownerUserId})
-						CREATE (b:Business {
-							business_id: randomUUID(),
+						MATCH (b:Business {business_id: $businessId})
+						CREATE (st:Staff {
+							staff_id: randomUUID(),
+							business_id: $businessId,
 							name: $name,
-							type: $type,
-							address: $address,
-							phone: $phone,
 							email: $email,
-							description: $description,
-							is_system: $is_system,
+							phone: $phone,
 							created_at: datetime()
 						})
-						MERGE (owner)-[:OWNS]->(b)
-						RETURN b {.*} AS business
+						MERGE (b)-[:EMPLOYS]->(st)
+						RETURN st {.*} AS staff
 					`;
 					const parameters: IDataObject = {
-						ownerUserId,
+						businessId,
 						name,
-						type,
-						address,
-						phone,
-						email,
-						description,
-						is_system,
+						email: email === '' ? null : email, // Store empty string as null
+						phone: phone === '' ? null : phone, // Store empty string as null
 					};
-					const isWrite = true; // This is a write operation (CREATE)
+					const isWrite = true;
 
 					// 7. Execute Query
 					if (!session) {
@@ -216,24 +165,15 @@ export class Neo4jCreateBusiness implements INodeType {
 		} catch (error) {
 			// 10. Handle Node-Level Errors
 			if (error instanceof NodeOperationError) { throw error; }
+			if (items.length === 1) (error as any).itemIndex = 0;
 			throw parseNeo4jError(node, error);
 		} finally {
 			// 11. Close Session and Driver
 			if (session) {
-				try {
-					await session.close();
-					this.logger.debug('Neo4j session closed successfully.');
-				} catch (closeError) {
-					this.logger.error('Error closing Neo4j session:', closeError);
-				}
+				try { await session.close(); } catch (e) { this.logger.error('Error closing Neo4j session:', e); }
 			}
 			if (driver) {
-				try {
-					await driver.close();
-					this.logger.debug('Neo4j driver closed successfully.');
-				} catch (closeError) {
-					this.logger.error('Error closing Neo4j driver:', closeError);
-				}
+				try { await driver.close(); } catch (e) { this.logger.error('Error closing Neo4j driver:', e); }
 			}
 		}
 	}

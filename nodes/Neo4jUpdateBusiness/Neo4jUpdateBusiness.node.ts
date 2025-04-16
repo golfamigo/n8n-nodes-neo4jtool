@@ -162,7 +162,6 @@ export class Neo4jUpdateBusiness implements INodeType {
 					const phone = this.getNodeParameter('phone', i, undefined) as string | undefined;
 					const email = this.getNodeParameter('email', i, undefined) as string | undefined;
 					const description = this.getNodeParameter('description', i, undefined) as string | undefined;
-					const business_hours = this.getNodeParameter('business_hours', i, undefined) as string | undefined;
 					const is_system = this.getNodeParameter('is_system', i, undefined) as boolean | undefined;
 
 					// Build SET clause dynamically based on provided parameters
@@ -175,7 +174,6 @@ export class Neo4jUpdateBusiness implements INodeType {
 					if (phone !== undefined && phone !== '') { setClauses.push('b.phone = $phone'); parameters.phone = phone; }
 					if (email !== undefined && email !== '') { setClauses.push('b.email = $email'); parameters.email = email; }
 					if (description !== undefined && description !== '') { setClauses.push('b.description = $description'); parameters.description = description; }
-					if (business_hours !== undefined && business_hours !== '') { setClauses.push('b.business_hours = $business_hours'); parameters.business_hours = business_hours; }
 					if (is_system !== undefined) { setClauses.push('b.is_system = $is_system'); parameters.is_system = is_system; }
 
 					if (setClauses.length === 0) {

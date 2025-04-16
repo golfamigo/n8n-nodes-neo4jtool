@@ -125,7 +125,7 @@
     *   **參數:** `ownerUserId` (必填), `name` (必填), `type` (必填), `address` (必填), `phone` (必填), `email` (必填), `description` (必填), `booking_mode` (必填, 選項)。
     *   **輸出:** 新創建的 Business 節點屬性 (包含 `business_id`)。
 *   **Neo4j: Find Business by Name (`neo4jFindBusinessByName`)**
-    *   **功能:** 根據名稱模糊查找商家。*注意：由於名稱可能重複，建議優先使用其他唯一標識符查找商家。AI Agent 需處理可能的多個結果。*
+    *   **功能:** 根據名稱模糊查找商家。
     *   **參數:** `searchTerm` (必填)。
     *   **輸出:** 匹配的 Business 節點屬性列表。
 *   **Neo4j: Update Business (`neo4jUpdateBusiness`)**

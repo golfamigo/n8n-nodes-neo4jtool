@@ -16,17 +16,16 @@
       "phone": "STRING indexed",
       "email": "STRING indexed",
       "description": "STRING indexed",
-      "business_hours": "STRING", // 建議未來改為結構化 BusinessHours 節點
       "booking_mode": "STRING indexed", // 新增: 'ResourceOnly', 'StaffOnly', 'StaffAndResource', 'TimeOnly'
-      "created_at": "DATETIME",
-      "updated_at": "DATETIME"
+      "created_at": "DATETIME", // Stored as UTC
+      "updated_at": "DATETIME" // Stored as UTC
       // is_system 已移除
     },
     "relationships": {
       "OWNS": "User", // 反向關係，User 擁有 Business
       "EMPLOYS": "Staff",
       "OFFERS": "Service",
-      "HAS_HOURS": "BusinessHours", // 結構化營業時間關係 (未來)
+      "HAS_HOURS": "BusinessHours"
       "PROMOTES": "Advertisement",
       "HAS_RESOURCE": "Resource" // 新增
     }
@@ -40,8 +39,8 @@
       "name": "STRING indexed", // 例如 'Table 5', 'Window Seat 2'
       "capacity": "INTEGER", // 可選
       "properties": "MAP", // 可選
-      "created_at": "DATETIME",
-      "updated_at": "DATETIME"
+      "created_at": "DATETIME", // Stored as UTC
+      "updated_at": "DATETIME" // Stored as UTC
     },
     "relationships": {
       // 由 Business 指向 -> HAS_RESOURCE
@@ -56,8 +55,8 @@
       "duration_minutes": "INTEGER",
       "description": "STRING",
       "price": "INTEGER", // 可選
-      "created_at": "DATETIME",
-      "updated_at": "DATETIME"
+      "created_at": "DATETIME", // Stored as UTC
+      "updated_at": "DATETIME" // Stored as UTC
       // is_system 已移除
     },
     "relationships": {
@@ -75,8 +74,8 @@
       "business_id": "STRING indexed",
       "name": "STRING indexed",
       "email": "STRING",
-      "created_at": "DATETIME",
-      "updated_at": "DATETIME"
+      "created_at": "DATETIME", // Stored as UTC
+      "updated_at": "DATETIME" // Stored as UTC
       // is_system 已移除
     },
     "relationships": {
@@ -93,10 +92,10 @@
       // 建議複合唯一鍵 (staff_id, day_of_week)
       "staff_id": "STRING indexed",
       "day_of_week": "INTEGER indexed", // 1-7
-      "start_time": "TIME",
-      "end_time": "TIME",
-      "created_at": "DATETIME",
-      "updated_at": "DATETIME"
+      "start_time": "TIME", // Represents UTC time
+      "end_time": "TIME", // Represents UTC time
+      "created_at": "DATETIME", // Stored as UTC
+      "updated_at": "DATETIME" // Stored as UTC
       // is_system 已移除
     },
     "relationships": {
@@ -110,11 +109,11 @@
       "customer_id": "STRING indexed",
       "business_id": "STRING indexed",
       "service_id": "STRING indexed",
-      "booking_time": "DATETIME indexed", // 使用 DATETIME 類型
+      "booking_time": "DATETIME indexed", // Stored as UTC
       "status": "STRING indexed", // e.g., 'Confirmed', 'Cancelled', 'Completed'
       "notes": "STRING",
-      "created_at": "DATETIME",
-      "updated_at": "DATETIME"
+      "created_at": "DATETIME", // Stored as UTC
+      "updated_at": "DATETIME" // Stored as UTC
       // is_system 已移除
     },
     "relationships": {
@@ -134,8 +133,8 @@
       "name": "STRING indexed",
       "phone": "STRING",
       "email": "STRING",
-      "created_at": "DATETIME",
-      "updated_at": "DATETIME"
+      "created_at": "DATETIME", // Stored as UTC
+      "updated_at": "DATETIME" // Stored as UTC
       // is_system 已移除
     },
     "relationships": {
@@ -155,8 +154,8 @@
       "email": "STRING unique indexed",
       "phone": "STRING unique indexed",
       "notification_enabled": "BOOLEAN", // 通用通知開關
-      "created_at": "DATETIME",
-      "updated_at": "DATETIME"
+      "created_at": "DATETIME", // Stored as UTC
+      "updated_at": "DATETIME" // Stored as UTC
       // is_system, line_id, line_notification_enabled 已移除
     },
     "relationships": {
@@ -191,7 +190,14 @@
   },
   {
     "label": "BusinessHours",
-    "attributes": { "day_of_week": "INTEGER unique indexed", "business_id": "STRING unique indexed" /* ...其他時間屬性 */ },
+    "attributes": { 
+        "business_id": "STRING indexed", 
+        "day_of_week": "INTEGER indexed", 
+        "start_time": "TIME", // Represents UTC time 
+        "end_time": "TIME", // Represents UTC time 
+        "created_at": "DATETIME", // Stored as UTC 
+        "updated_at": "DATETIME" // Stored as UTC 
+      },
     "relationships": {}
   },
   {
@@ -267,9 +273,8 @@
     - `phone` (string, required)
     - `email` (string, required)
     - `description` (string, required)
-    - `business_hours` (string, required, Description: '描述性營業時間，未來可能改為結構化')
     - `booking_mode` (string, required, type: options, options: ['ResourceOnly', 'StaffOnly', 'StaffAndResource', 'TimeOnly'], Description: '商家的預約檢查模式')
-- **核心邏輯**: `execute` 方法需先 `MATCH (owner:User {id: $ownerUserId})`，然後 `CREATE (b:Business {business_id: randomUUID(), name: $name, type: $type, address: $address, phone: $phone, email: $email, description: $description, business_hours: $business_hours, booking_mode: $booking_mode, created_at: datetime()})`，設定所有提供的屬性，最後 `MERGE (owner)-[:OWNS]->(b)` 建立關係。返回創建的 Business 節點。
+- **核心邏輯**: `execute` 方法需先 `MATCH (owner:User {id: $ownerUserId})`，然後 `CREATE (b:Business {business_id: randomUUID(), name: $name, type: $type, address: $address, phone: $phone, email: $email, description: $description, booking_mode: $booking_mode, created_at: datetime()})`，設定所有提供的屬性，最後 `MERGE (owner)-[:OWNS]->(b)` 建立關係。返回創建的 Business 節點。
 
 ## 查找商家 (FindBusinessByName)
 
@@ -295,7 +300,6 @@
     - `phone` (string, optional)
     - `email` (string, optional)
     - `description` (string, optional)
-    - `business_hours` (string, optional)
     - `booking_mode` (string, optional, type: options, options: ['ResourceOnly', 'StaffOnly', 'StaffAndResource', 'TimeOnly'])
 - **核心邏輯**: `execute` 方法應 `MATCH (b:Business {business_id: $businessId})`，然後使用 `SET` 更新所有提供的非空參數，並更新 `b.updated_at = datetime()`。返回更新後的 Business 節點。
 
@@ -315,6 +319,45 @@
 - `displayName`: 'Neo4j: Find Services by Business'
 - `name`: `neo4jFindServicesByBusiness`
 - `description`: '查找指定商家提供的所有服務項目。'
+
+**--- Business Hours Operations ---**
+
+## 設定商家營業時間 (SetBusinessHours)
+
+請參考上方提供的 **Neo4j 資料庫 Schema** 和最新的 **NodeTemplate.ts.txt** 模板，開發一個名為 `SetBusinessHours` 的 n8n 節點。
+- `displayName`: 'Neo4j: Set Business Hours'
+- `name`: `neo4jSetBusinessHours`
+- `description`: '設定或更新指定商家的營業時間 (會覆蓋舊設定)。'
+- **參數**:
+    - `businessId` (string, required)
+    - `hoursData` (json, required, Description: '包含每天營業時間的 JSON 陣列，格式：`[{"day_of_week": 1, "start_time": "HH:MM", "end_time": "HH:MM"}, ...]` (時間應為 UTC)。如果某天休息，則不包含該天的物件。')
+- **核心邏輯**: 
+    1. `MATCH (b:Business {business_id: $businessId})`
+    2. `OPTIONAL MATCH (b)-[r:HAS_HOURS]->(oldBh:BusinessHours) DELETE r, oldBh` (刪除舊的營業時間)
+    3. `UNWIND $hoursData AS dayHours` (展開輸入的 JSON 陣列)
+    4. `CREATE (bh:BusinessHours {business_id: $businessId, day_of_week: dayHours.day_of_week, start_time: time(dayHours.start_time), end_time: time(dayHours.end_time), created_at: datetime()})`
+    5. `MERGE (b)-[:HAS_HOURS]->(bh)`
+
+## 獲取商家營業時間 (GetBusinessHours)
+
+請參考上方提供的 **Neo4j 資料庫 Schema** 和最新的 **NodeTemplate.ts.txt** 模板，開發一個名為 `GetBusinessHours` 的 n8n 節點。
+- `displayName`: 'Neo4j: Get Business Hours'
+- `name`: `neo4jGetBusinessHours`
+- `description`: '獲取指定商家的營業時間列表。'
+- **參數**:
+    - `businessId` (string, required)
+- **核心邏輯**: `MATCH (b:Business {business_id: $businessId})-[:HAS_HOURS]->(bh:BusinessHours) RETURN bh { .day_of_week, start_time: toString(bh.start_time), end_time: toString(bh.end_time) } ORDER BY bh.day_of_week`。
+
+## 刪除商家營業時間 (DeleteBusinessHours)
+
+請參考上方提供的 **Neo4j 資料庫 Schema** 和最新的 **NodeTemplate.ts.txt** 模板，開發一個名為 `DeleteBusinessHours` 的 n8n 節點。
+- `displayName`: 'Neo4j: Delete Business Hours'
+- `name`: `neo4jDeleteBusinessHours`
+- `description`: '刪除指定商家的所有營業時間記錄。'
+- **參數**:
+    - `businessId` (string, required)
+- **核心邏輯**: `MATCH (b:Business {business_id: $businessId})-[r:HAS_HOURS]->(bh:BusinessHours) DETACH DELETE bh`。
+
 - **參數**:
     - `businessId` (string, required, Description: '要查詢的商家 ID')
 - **核心邏輯**: `execute` 方法應執行 `MATCH (b:Business {business_id: $businessId})-[:OFFERS]->(s:Service) RETURN s {.*, service_id: s.service_id} AS service`。
@@ -333,7 +376,7 @@
     - `name` (string, required, Description: '資源名稱/編號')
     - `capacity` (integer, optional)
     - `properties` (json, optional, Description: '其他屬性 (JSON 格式)')
-- **核心邏輯**: `execute` 方法需先 `MATCH (b:Business {business_id: $businessId})`，然後 `CREATE (r:Resource {resource_id: randomUUID(), business_id: $businessId, type: $type, name: $name, capacity: $capacity, properties: $properties, created_at: datetime()})`，最後 `MERGE (b)-[:HAS_RESOURCE]->(r)`。返回創建的 Resource 節點。
+- **核心邏輯**: `execute` 方法需先 `MATCH (b:Business {business_id: $businessId})`，然後 `CREATE (r:Resource {resource_id: randomUUID(), business_id: $businessId, type: $type, name: $name, capacity: $capacity, properties: $propertiesJsonString, created_at: datetime()})`，最後 `MERGE (b)-[:HAS_RESOURCE]->(r)`。返回創建的 Resource 節點。
 
 ## 更新資源 (UpdateResource)
 
@@ -347,7 +390,7 @@
     - `name` (string, optional)
     - `capacity` (integer, optional)
     - `properties` (json, optional)
-- **核心邏輯**: `execute` 方法應 `MATCH (r:Resource {resource_id: $resourceId})`，使用 `SET` 更新提供的參數及 `r.updated_at = datetime()`。返回更新後的 Resource 節點。
+- **核心邏輯**: `execute` 方法應 `MATCH (r:Resource {resource_id: $resourceId})`，使用 `SET` 更新提供的參數（`properties` 需轉為 JSON 字串）及 `r.updated_at = datetime()`。返回更新後的 Resource 節點。
 
 ## 刪除資源 (DeleteResource)
 
@@ -427,6 +470,18 @@
     - `email` (string, required)
 - **核心邏輯**: `execute` 方法需先 `MATCH (b:Business {business_id: $businessId}), (u:User {id: $userId})`，然後 `CREATE (c:Customer {customer_id: randomUUID(), name: $name, business_id: $businessId, phone: $phone, email: $email, created_at: datetime()})`，接著 `MERGE (c)-[:REGISTERED_WITH]->(b)` 和 `MERGE (c)-[:HAS_USER_ACCOUNT]->(u)`。返回創建的 Customer 節點。
 
+
+## 查找客戶 (FindCustomerByExternalIdAndBusinessId)
+
+請參考上方提供的 **Neo4j 資料庫 Schema** 和最新的 **NodeTemplate.ts.txt** 模板，開發一個名為 `FindCustomerByExternalIdAndBusinessId` 的 n8n 節點。
+- `displayName`: 'Neo4j: Find Customer by External ID & Business ID'
+- `name`: `neo4jFindCustomerByExternalIdAndBusinessId`
+- `description`: '根據用戶 External ID 和商家 ID 查找客戶記錄。'
+- **參數**:
+    - `externalId` (string, required, Description: '用戶的 External ID')
+    - `businessId` (string, required, Description: '客戶註冊的商家 ID')
+- **核心邏輯**: `execute` 方法應執行 `MATCH (u:User {external_id: $externalId})-[:HAS_USER_ACCOUNT]->(c:Customer)-[:REGISTERED_WITH]->(b:Business {business_id: $businessId}) RETURN c {.*} AS customer`。如果找不到，表示該用戶尚未成為該商家的客戶。
+
 ## 更新客戶 (UpdateCustomer)
 
 請參考上方提供的 **Neo4j 資料庫 Schema** 和最新的 **NodeTemplate.ts.txt** 模板，開發一個名為 `UpdateCustomer` 的 n8n 節點。
@@ -451,6 +506,77 @@
 - **核心邏輯**: `execute` 方法應 `MATCH (c:Customer {customer_id: $customerId}) DETACH DELETE c`。
 
 **--- Staff Operations ---**
+
+## 創建員工 (CreateStaff)
+
+
+## 查找員工 (FindStaffByExternalId)
+
+請參考上方提供的 **Neo4j 資料庫 Schema** 和最新的 **NodeTemplate.ts.txt** 模板，開發一個名為 `FindStaffByExternalId` 的 n8n 節點。
+- `displayName`: 'Neo4j: Find Staff by External ID'
+- `name`: `neo4jFindStaffByExternalId`
+- `description`: '根據用戶 External ID 查找關聯的員工記錄。'
+- **參數**:
+    - `externalId` (string, required, Description: '用戶的 External ID')
+    - `businessId` (string, optional, Description: '如果用戶可能在多個商家任職，可指定商家 ID 進行過濾')
+- **核心邏輯**: `execute` 方法應執行 `MATCH (u:User {external_id: $externalId})-[:HAS_USER_ACCOUNT]->(st:Staff)`。如果提供了 `businessId`，則追加 `MATCH (st)-[:EMPLOYED_BY]->(b:Business {business_id: $businessId})`。返回匹配的 Staff 節點列表。
+
+請參考上方提供的 **Neo4j 資料庫 Schema** 和最新的 **NodeTemplate.ts.txt** 模板，開發一個名為 `CreateStaff` 的 n8n 節點。
+- `displayName`: 'Neo4j: Create Staff'
+- `name`: `neo4jCreateStaff`
+- `description`: '為指定商家創建一個新的員工記錄。'
+- **參數**:
+    - `businessId` (string, required)
+    - `name` (string, required)
+    - `email` (string, optional)
+    - `phone` (string, optional)
+- **核心邏輯**: `execute` 方法需先 `MATCH (b:Business {business_id: $businessId})`，然後 `CREATE (st:Staff {staff_id: randomUUID(), business_id: $businessId, name: $name, email: $email, phone: $phone, created_at: datetime()})`，接著 `MERGE (b)-[:EMPLOYS]->(st)`。返回創建的 Staff 節點。
+
+## 更新員工 (UpdateStaff)
+
+請參考上方提供的 **Neo4j 資料庫 Schema** 和最新的 **NodeTemplate.ts.txt** 模板，開發一個名為 `UpdateStaff` 的 n8n 節點。
+- `displayName`: 'Neo4j: Update Staff'
+- `name`: `neo4jUpdateStaff`
+- `description`: '根據 staff_id 更新員工資訊。'
+- **參數**:
+    - `staffId` (string, required)
+    - `name` (string, optional)
+    - `email` (string, optional)
+    - `phone` (string, optional)
+- **核心邏輯**: `execute` 方法應 `MATCH (st:Staff {staff_id: $staffId})`，使用 `SET` 更新提供的參數及 `st.updated_at = datetime()`。返回更新後的 Staff 節點。
+
+## 刪除員工 (DeleteStaff)
+
+請參考上方提供的 **Neo4j 資料庫 Schema** 和最新的 **NodeTemplate.ts.txt** 模板，開發一個名為 `DeleteStaff` 的 n8n 節點。
+- `displayName`: 'Neo4j: Delete Staff'
+- `name`: `neo4jDeleteStaff`
+- `description`: '根據 staff_id 刪除員工及其關聯關係 (例如可用性、服務能力)。'
+- **參數**:
+    - `staffId` (string, required)
+- **核心邏輯**: `execute` 方法應 `MATCH (st:Staff {staff_id: $staffId}) DETACH DELETE st`。
+
+## 關聯員工與用戶帳號 (LinkStaffToUser)
+
+請參考上方提供的 **Neo4j 資料庫 Schema** 和最新的 **NodeTemplate.ts.txt** 模板，開發一個名為 `LinkStaffToUser` 的 n8n 節點。
+- `displayName`: 'Neo4j: Link Staff to User'
+- `name`: `neo4jLinkStaffToUser`
+- `description`: '將現有的員工記錄關聯到一個用戶帳號。'
+- **參數**:
+    - `staffId` (string, required)
+    - `userId` (string, required, Description: '用戶的內部 ID')
+- **核心邏輯**: `execute` 方法應 `MATCH (st:Staff {staff_id: $staffId}), (u:User {id: $userId}) MERGE (st)-[:HAS_USER_ACCOUNT]->(u)`。
+
+## 分配服務給員工 (LinkStaffToService)
+
+請參考上方提供的 **Neo4j 資料庫 Schema** 和最新的 **NodeTemplate.ts.txt** 模板，開發一個名為 `LinkStaffToService` 的 n8n 節點。
+- `displayName`: 'Neo4j: Link Staff to Service'
+- `name`: `neo4jLinkStaffToService`
+- `description`: '指定某個員工可以提供哪些服務。'
+- **參數**:
+    - `staffId` (string, required)
+    - `serviceId` (string, required)
+- **核心邏輯**: `execute` 方法應 `MATCH (st:Staff {staff_id: $staffId}), (s:Service {service_id: $serviceId}) MERGE (st)-[:CAN_PROVIDE]->(s)`。
+
 
 ## 設定員工可用性 (SetStaffAvailability)
 
@@ -484,20 +610,24 @@
 - **核心邏輯**:
     1.  `MATCH (b:Business {business_id: $businessId})` 獲取 `booking_mode`。
     2.  `MATCH (s:Service {service_id: $serviceId})` 獲取 `duration_minutes`。
-    3.  生成 `startDateTime` 到 `endDateTime` 之間的潛在時間點列表 (考慮 `BusinessHours`，如果實現了)。
+    3.  生成 `startDateTime` 到 `endDateTime` 之間的潛在時間點列表 (需查詢 `BusinessHours` 節點，只生成在營業時間內的時段)。
+
+    3.  生成 `startDateTime` 到 `endDateTime` 之間的潛在時間點列表 (基於 UTC 比較，並查詢結構化的 `BusinessHours` 節點)。
     4.  對於每個潛在時間點 `slot`：
         *   計算 `slotEnd = slot + duration`。
         *   根據 `b.booking_mode` 執行檢查：
             *   **Resource Check** (if mode includes 'Resource'): 查找是否有**至少一個**符合 `requiredResourceType` 和 `requiredResourceCapacity` 的 `Resource` (r)，且該資源在 `[slot, slotEnd)` 時間段內**沒有**被 `Booking` (bk) `[:RESERVES_RESOURCE]`。
-            *   **Staff Check** (if mode includes 'Staff'): 查找是否有**至少一個**符合 `requiredStaffId` (或任何能提供服務的員工) 的 `Staff` (st)，其 `StaffAvailability` 覆蓋 `[slot, slotEnd)`，且在該時間段內**沒有**被 `Booking` (bk) `[:SERVED_BY]`。
+            *   **Staff Check** (if mode includes 'Staff'): 查找是否有**至少一個**符合 `requiredStaffId` (或任何能提供服務的員工) 的 `Staff` (st)，其 `StaffAvailability` (視為 UTC 時間) 覆蓋 `[slot, slotEnd)` (UTC)，且在該時間段內**沒有**被 `Booking` (bk) `[:SERVED_BY]`。
             *   **Time Check** (if mode is 'TimeOnly'): 檢查 `[slot, slotEnd)` 是否與任何 `(bk:Booking)-[:AT_BUSINESS]->(b)` 衝突。
         *   如果所有必要的檢查都通過，則將 `slot` 加入結果。
-    5.  返回可用時間段列表。
+    5.  返回可用時間段列表 (UTC ISO 8601 格式)。
 
 ## 創建預約 (CreateBooking)
 
 請參考上方提供的 **Neo4j 資料庫 Schema** 和最新的 **NodeTemplate.ts.txt** 模板，開發一個名為 `CreateBooking` 的 n8n 節點。
 - `displayName`: 'Neo4j: Create Booking'
+- **前提條件**: 執行此節點前，必須確保提供的 `customerId`, `businessId`, `serviceId` (以及可選的 `staffId`, `resourceId`) 對應的記錄已存在於資料庫中。此節點不負責自動創建這些關聯實體。
+
 - `name`: `neo4jCreateBooking`
 - `description`: '創建一個新的預約記錄並建立必要的關聯（不進行可用性檢查）。'
 - **參數**:
@@ -530,7 +660,7 @@
     - `staffId` (string, optional, Description: '更新服務員工 ID (留空以移除)')
     - `resourceId` (string, optional, Description: '更新預約資源 ID (留空以移除)') # 新增
     - `notes` (string, optional)
-- **核心邏輯**: `MATCH (bk:Booking {booking_id: $bookingId})`，使用 `SET` 更新提供的屬性及 `bk.updated_at = datetime()`。如果更新了 `staffId` 或 `resourceId`，需要處理對應的 `[:SERVED_BY]` 或 `[:RESERVES_RESOURCE]` 關係（先刪除舊關係再創建新關係）。返回更新後的 Booking 節點。
+- **核心邏輯**: `MATCH (bk:Booking {booking_id: $bookingId})`，使用 `SET` 更新提供的屬性（`bookingTime` 需為含時區的 ISO 8601 字串）及 `bk.updated_at = datetime()`。如果更新了 `staffId` 或 `resourceId`，需要處理對應的 `[:SERVED_BY]` 或 `[:RESERVES_RESOURCE]` 關係（先刪除舊關係再創建新關係）。返回更新後的 Booking 節點。
 
 ## 刪除預約 (DeleteBooking)
 

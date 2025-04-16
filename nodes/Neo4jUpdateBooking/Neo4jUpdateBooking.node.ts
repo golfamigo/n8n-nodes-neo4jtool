@@ -62,7 +62,7 @@ export class Neo4jUpdateBooking implements INodeType {
 				name: 'bookingTime',
 				type: 'string',
 				default: '',
-				description: '新的預約開始時間 (ISO 8601 格式) (可選)',
+				description: '新的預約開始時間 (ISO 8601 格式, 需含時區) (可選)',
 			},
 			{
 				displayName: 'Status',

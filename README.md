@@ -1,6 +1,6 @@
-# n8n-nodes-neo4j
+# n8n-nodes-neo4jtool
 
-This is an n8n community node. It lets you use Neo4j in your n8n workflows.
+This is an n8n community node. It lets you interact with a Neo4j database using a set of specialized nodes, particularly focused on booking system logic.
 
 Neo4j is a native graph database platform, built from the ground up to leverage not only data but also data relationships.
 
@@ -18,16 +18,17 @@ Follow the [installation guide](https://docs.n8n.io/integrations/community-nodes
 
 ## Operations
 
-*   **Execute Cypher Query**: Execute a raw Cypher query against the database.
-*   **Create Node**: Create a new node with specified labels and properties.
-*   **Match Nodes**: Find nodes based on labels and properties.
-*   **Update Node**: Update properties of existing nodes based on match criteria.
-*   **Delete Node**: Delete nodes based on match criteria, with an option to detach relationships first.
-*   **Create Relationship**: Create a relationship of a specified type with optional properties between two matched nodes.
+This package provides a collection of specialized nodes for interacting with a Neo4j database based on a specific booking system schema. Key operations include:
+
+*   Managing Users, Businesses, Services, Customers, Staff, Resources, and Bookings (CRUD operations).
+*   Finding available booking slots based on business rules (`FindAvailableSlots`).
+*   Setting staff availability.
+
+For detailed usage instructions and examples, please refer to `USER_MANUAL.md` (中文) or `README.zh-TW.md` (中文).
 
 ## Credentials
 
-To use this node, you need to configure Neo4j credentials in n8n. This requires the following information from your Neo4j instance:
+To use these nodes, you need to configure Neo4j credentials named `neo4jApi` in n8n. This requires the following information from your Neo4j instance:
 
 *   **Host**: The host address of your Neo4j instance, including the protocol (e.g., `neo4j://localhost`, `bolt://your-server.com`, `neo4j+s://your-aura-instance.databases.neo4j.io`).
 *   **Port**: The Bolt port number for your Neo4j instance (typically `7687`).
@@ -44,3 +45,4 @@ To use this node, you need to configure Neo4j credentials in n8n. This requires 
 
 *   [n8n community nodes documentation](https://docs.n8n.io/integrations/community-nodes/)
 *   [Neo4j Documentation](https://neo4j.com/docs/)
+*   [Neo4j Cypher Manual](https://neo4j.com/docs/cypher-manual/current/)

@@ -1,6 +1,6 @@
 {
   "name": "n8n-nodes-neo4jtool",
-  "version": "0.1.51",
+  "version": "0.1.54",
   "description": "a Neo4j node for n8n workflows",
   "keywords": [
     "n8n-community-node-package",
@@ -64,7 +64,18 @@
       "dist/nodes/Neo4jUpdateResource/Neo4jUpdateResource.node.js",
       "dist/nodes/Neo4jDeleteResource/Neo4jDeleteResource.node.js",
       "dist/nodes/Neo4jListResourceTypes/Neo4jListResourceTypes.node.js",
-      "dist/nodes/Neo4jFindAvailableSlots/Neo4jFindAvailableSlots.node.js"
+      "dist/nodes/Neo4jFindAvailableSlots/Neo4jFindAvailableSlots.node.js",
+      "dist/nodes/Neo4jSetBusinessHours/Neo4jSetBusinessHours.node.js",
+      "dist/nodes/Neo4jGetBusinessHours/Neo4jGetBusinessHours.node.js",
+      "dist/nodes/Neo4jDeleteBusinessHours/Neo4jDeleteBusinessHours.node.js",
+      "dist/nodes/Neo4jSetStaffAvailability/Neo4jSetStaffAvailability.node.js",
+      "dist/nodes/Neo4jCreateStaff/Neo4jCreateStaff.node.js",
+      "dist/nodes/Neo4jUpdateStaff/Neo4jUpdateStaff.node.js",
+      "dist/nodes/Neo4jDeleteStaff/Neo4jDeleteStaff.node.js",
+      "dist/nodes/Neo4jLinkStaffToUser/Neo4jLinkStaffToUser.node.js",
+      "dist/nodes/Neo4jLinkStaffToService/Neo4jLinkStaffToService.node.js",
+      "dist/nodes/Neo4jFindCustomerByExternalIdAndBusinessId/Neo4jFindCustomerByExternalIdAndBusinessId.node.js",
+      "dist/nodes/Neo4jFindStaffByExternalId/Neo4jFindStaffByExternalId.node.js"
     ]
   },
   "devDependencies": {
@@ -83,6 +94,8 @@
     "n8n-workflow": "*"
   },
   "dependencies": {
+    "@types/luxon": "^3.6.2",
+    "luxon": "^3.6.1",
     "neo4j-driver": "^5.28.1"
   }
 }

@@ -98,7 +98,7 @@ graph TD
             *   'ResourceOnly': 檢查資源預約情況。
             *   'StaffOnly': 檢查員工可用性和預約情況。
             *   'StaffAndResource': 同時檢查資源和員工。
-            *   'TimeOnly': 檢查商家營業時間和是否有任何預約衝突。
+            *   'TimeOnly': 檢查商家營業時間 (`BusinessHours`) 和是否有任何預約衝突。
         3.  綜合 `BusinessHours`, `StaffAvailability` (如果需要), `Booking` (檢查 `[:SERVED_BY]` 和 `[:RESERVES_RESOURCE]`) 來計算最終可用時段列表。
 
 **b. 修改節點:**

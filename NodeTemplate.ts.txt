@@ -1,5 +1,5 @@
 // ============================================================================
-// N8N Neo4j Dedicated Node Template (v3 - Incorporating Connection Fix)
+// N8N Neo4j Dedicated Node Template (v4 - Parameter Handling Best Practices)
 // ============================================================================
 // Purpose: Base template for creating dedicated Neo4j nodes for specific actions,
 //          intended to be used with the "multiple instances" pattern for AI Agents.
@@ -13,6 +13,12 @@
 // 7. Implement the execute method with specific Cypher logic for this action.
 // 8. Register the compiled JS path (e.g., "dist/nodes/Neo4jYourActionName/Neo4jYourActionName.node.js")
 //    in package.json's n8n.nodes array.
+// Key Learnings Incorporated:
+// - Correct DB Connection/Session/Driver handling & closing.
+// - Importance of matching getNodeParameter default with property default.
+// - Handling optional number parameters (check for null & undefined).
+// - Handling JSON parameters (parsing, error handling, storing as string).
+// - Using NodeOperationError for user-facing errors.
 // ============================================================================
 
 import type {
@@ -21,11 +27,11 @@ import type {
 	INodeExecutionData,
 	INodeType,
 	INodeTypeDescription,
-	ICredentialDataDecryptedObject, // Needed for credential type assertion
+	ICredentialDataDecryptedObject,
 	// Add other necessary types from n8n-workflow if needed
 } from 'n8n-workflow';
-import { NodeOperationError } from 'n8n-workflow';
-import neo4j, { Driver, Session, auth } from 'neo4j-driver'; // Import driver components
+import { NodeOperationError, jsonParse } from 'n8n-workflow'; // Import jsonParse for JSON parameters
+import neo4j, { Driver, Session, auth } from 'neo4j-driver'; // Import necessary driver components
 
 // --- IMPORTANT: Shared Utilities ---
 // Assuming this node file is at: nodes/Neo4jYourActionName/Neo4jYourActionName.node.ts
@@ -33,7 +39,6 @@ import neo4j, { Driver, Session, auth } from 'neo4j-driver'; // Import driver co
 import {
 	runCypherQuery,
 	parseNeo4jError,
-	// parseJsonParameter, // Import only if needed
 } from '../neo4j/helpers/utils'; // Verify this relative path
 
 // --- Node Class Definition ---
@@ -45,7 +50,7 @@ export class Neo4jTemplateNode implements INodeType {
 		// TODO: Update basic node information
 		displayName: 'Neo4j: My Action', // User-friendly name
 		name: 'neo4jMyAction', // Technical name (camelCase, unique, matches class/file base)
-		icon: 'file:icon.svg', // Assumes icon file is in the same directory
+		icon: 'file:icon.svg', // Assumes icon file is in the same directory, or use '../neo4j/neo4j.svg'
 		group: ['database'], // Or a more specific group like 'neo4jActions'
 		version: 1,
 		subtitle: '={{$parameter["someInput"]}}', // Optional: Show a key parameter value dynamically
@@ -71,15 +76,43 @@ export class Neo4jTemplateNode implements INodeType {
 		// --- Node Specific Input Properties ---
 		properties: [
 			// TODO: Define the input fields needed for this specific action.
-			// Example:
-			// {
-			// 	displayName: 'Search Term',
-			// 	name: 'searchTerm', // Used in getNodeParameter
-			// 	type: 'string',
-			// 	required: true,
-			// 	default: '',
-			// 	description: 'The keyword for fuzzy name matching',
-			// },
+			// Example 1: Required String Parameter
+			{
+				displayName: 'Required ID',
+				name: 'requiredId',
+				type: 'string',
+				required: true, // Mark as required
+				default: '', // Default for required string is usually ''
+				description: 'The mandatory ID for this operation.',
+			},
+			// Example 2: Optional String Parameter
+			{
+				displayName: 'Optional Name',
+				name: 'optionalName',
+				type: 'string',
+				// required: false, // This is implicit if 'required: true' is absent
+				default: '', // Default for optional string is usually ''
+				description: 'An optional name value.',
+			},
+			// Example 3: Optional Number Parameter (Potential Null Issue)
+			{
+				displayName: 'Optional Count',
+				name: 'optionalCount',
+				type: 'number',
+				default: undefined, // Use undefined if no natural default exists
+				typeOptions: {
+					numberStep: 1, // For integers
+				},
+				description: 'An optional count. IMPORTANT: Check for !== undefined AND !== null before use.',
+			},
+			// Example 4: Optional JSON Parameter
+			{
+				displayName: 'Additional Data (JSON)',
+				name: 'additionalDataJson', // Use distinct name
+				type: 'json',
+				default: '{}', // Default to empty JSON object string
+				description: 'Optional additional data in JSON format (e.g., {"key": "value"}). Stored as string.',
+			},
 		],
 	};
 
@@ -89,17 +122,17 @@ export class Neo4jTemplateNode implements INodeType {
 	// --- Node Execution Logic ---
 	async execute(this: IExecuteFunctions): Promise<INodeExecutionData[][]> {
 		const items = this.getInputData();
+		this.logger.debug(`Received items: ${JSON.stringify(items)}`); // Log received items
 		const returnData: INodeExecutionData[] = [];
-		let driver: Driver | undefined; // Define driver
+		let driver: Driver | undefined;
 		let session: Session | undefined;
-		const node = this.getNode(); // Get node instance for error reporting
+		const node = this.getNode();
 
 		try {
 			// 1. Get Credentials
-			// Use the credential name defined in description.credentials
 			const credentials = await this.getCredentials('neo4jApi') as ICredentialDataDecryptedObject;
 
-			// 2. Validate Credentials (Basic Check)
+			// 2. Validate Credentials
 			if (!credentials || !credentials.host || !credentials.port || !credentials.username || typeof credentials.password === 'undefined') {
 				throw new NodeOperationError(node, 'Neo4j credentials are not fully configured or missing required fields (host, port, username, password).', { itemIndex: 0 });
 			}
@@ -107,53 +140,88 @@ export class Neo4jTemplateNode implements INodeType {
 			const uri = `${credentials.host}:${credentials.port}`;
 			const user = credentials.username as string;
 			const password = credentials.password as string;
-			const database = credentials.database as string || 'neo4j'; // Default to 'neo4j' if not provided
+			const database = credentials.database as string || 'neo4j';
 
-			// 3. Establish Neo4j Connection (Correct Pattern)
-			// Based on nodes/neo4j/actions/router.ts and successful fix in Neo4jFindBusinessByName.node.ts
+			// 3. Establish Neo4j Connection
 			try {
 				driver = neo4j.driver(uri, auth.basic(user, password));
-				// Verify connectivity before opening session
 				await driver.verifyConnectivity();
 				this.logger.debug('Neo4j driver connected successfully.');
 				session = driver.session({ database });
 				this.logger.debug(`Neo4j session opened for database: ${database}`);
 			} catch (connectionError) {
 				this.logger.error('Failed to connect to Neo4j or open session:', connectionError);
-				// Use shared error parser for consistency
 				throw parseNeo4jError(node, connectionError, 'Failed to establish Neo4j connection or session.');
 			}
 
-			// 4. Loop Through Input Items (Adjust if node runs only once)
+			// 4. Loop Through Input Items
 			for (let i = 0; i < items.length; i++) {
 				try {
+					this.logger.debug(`Processing item index: ${i}`);
+					this.logger.debug(`Item content: ${JSON.stringify(items[i])}`);
+
 					// 5. Get Input Parameters for Current Item
-					// TODO: Get all parameters defined in 'properties' using this.getNodeParameter(name, i, defaultValue)
-					// Example: const searchTerm = this.getNodeParameter('searchTerm', i, '') as string;
+					// IMPORTANT: Ensure the 3rd argument (defaultValue) matches the 'default' in properties definition!
+					const requiredId = this.getNodeParameter('requiredId', i, '') as string;
+					const optionalName = this.getNodeParameter('optionalName', i, '') as string;
+					const optionalCount = this.getNodeParameter('optionalCount', i, undefined) as number | undefined;
+					const additionalDataJson = this.getNodeParameter('additionalDataJson', i, '{}') as string;
+
+					this.logger.debug(`Raw additionalDataJson value: ${additionalDataJson}`);
+					this.logger.debug(`Type of additionalDataJson: ${typeof additionalDataJson}`);
+
+					// Safely parse JSON parameter
+					let additionalData: IDataObject = {};
+					if (additionalDataJson !== undefined && additionalDataJson.trim() !== '' && additionalDataJson.trim() !== '{}') {
+						try {
+							additionalData = jsonParse(additionalDataJson);
+							if (typeof additionalData !== 'object' || additionalData === null || Array.isArray(additionalData)) {
+								throw new NodeOperationError(node, 'Additional Data must be a valid JSON object.', { itemIndex: i });
+							}
+						} catch (jsonError) {
+							throw new NodeOperationError(node, `Invalid JSON in Additional Data field: ${jsonError.message}`, { itemIndex: i });
+						}
+					}
 
 					// 6. Define Specific Cypher Query & Parameters for this Action
-					// TODO: Write the Cypher query for this node's specific task. Use $parameters.
+					// TODO: Write the Cypher query. Use $parameters.
 					const query = 'RETURN "Implement Cypher Query Here" AS message'; // Placeholder
-					const parameters: IDataObject = {}; // TODO: Populate with values from getNodeParameter
+					const parameters: IDataObject = { requiredId }; // Start with required params
+
+					// Add optional parameters only if they have meaningful values
+					if (optionalName !== undefined && optionalName !== '') {
+						parameters.optionalName = optionalName;
+						// TODO: Add corresponding SET clause or use in WHERE etc.
+					}
+					// IMPORTANT: Check for both undefined AND null for optional numbers
+					if (optionalCount !== undefined && optionalCount !== null) {
+						parameters.optionalCount = neo4j.int(optionalCount); // Use neo4j.int()
+						// TODO: Add corresponding SET clause or use in WHERE etc.
+					}
+					// Store parsed JSON as a string
+					parameters.additionalDataJsonString = JSON.stringify(additionalData);
+					// TODO: Add corresponding SET clause (e.g., SET n.additionalData = $additionalDataJsonString)
+
+
 					const isWrite = false; // TODO: Set to true for CREATE/MERGE/SET/DELETE
 
+					this.logger.debug(`Executing query: ${query}`);
+					this.logger.debug(`With parameters: ${JSON.stringify(parameters)}`);
+
 					// 7. Execute Query
-					// Ensure session is defined before using it
 					if (!session) {
 						throw new NodeOperationError(node, 'Neo4j session is not available.', { itemIndex: i });
 					}
 					const results = await runCypherQuery.call(this, session, query, parameters, isWrite, i);
-					// results should be INodeExecutionData[]
 					returnData.push(...results);
 
 				} catch (itemError) {
-					// 8. Handle Item-Level Errors (Continue on Fail)
+					// 8. Handle Item-Level Errors
 					if (this.continueOnFail(itemError)) {
 						const item = items[i];
+						// Use parseNeo4jError for consistent error formatting
 						const parsedError = parseNeo4jError(node, itemError);
-						// Pass the parsed error object directly
 						const errorData = { ...item.json, error: parsedError };
-						// Use NodeOperationError for structured error reporting in the output
 						returnData.push({
 							json: errorData,
 							error: new NodeOperationError(node, parsedError.message, { itemIndex: i, description: parsedError.description ?? undefined }),
@@ -161,21 +229,22 @@ export class Neo4jTemplateNode implements INodeType {
 						});
 						continue;
 					}
-					// Re-throw error to be caught by outer catch
+					// Re-throw error if not continuing on fail
 					throw itemError;
 				}
 			}
 
-			// 9. Return Results (Use prepareOutputData for consistency)
+			// 9. Return Results
 			return this.prepareOutputData(returnData);
 
 		} catch (error) {
-			// 10. Handle Node-Level Errors (e.g., connection, credential validation)
+			// 10. Handle Node-Level Errors
 			if (error instanceof NodeOperationError) { throw error; }
-			// Parse other errors using the shared helper
+			// Ensure itemIndex is attached if possible before parsing
+			if (items.length === 1) (error as any).itemIndex = 0;
 			throw parseNeo4jError(node, error);
 		} finally {
-			// 11. Close Session and Driver (Crucial!)
+			// 11. Close Session and Driver
 			if (session) {
 				try {
 					await session.close();
@@ -184,7 +253,7 @@ export class Neo4jTemplateNode implements INodeType {
 					this.logger.error('Error closing Neo4j session:', closeError);
 				}
 			}
-			if (driver) { // Also close the driver
+			if (driver) {
 				try {
 					await driver.close();
 					this.logger.debug('Neo4j driver closed successfully.');
