@@ -157,9 +157,9 @@ export class Neo4jUpdateService implements INodeType {
 					const parameters: IDataObject = { serviceId };
 
 					if (name !== undefined && name !== '') { setClauses.push('s.name = $name'); parameters.name = name; }
-					if (duration_minutes !== undefined) { setClauses.push('s.duration_minutes = $duration_minutes'); parameters.duration_minutes = neo4j.int(duration_minutes); }
+					if (duration_minutes !== undefined && duration_minutes !== null) { setClauses.push('s.duration_minutes = $duration_minutes'); parameters.duration_minutes = neo4j.int(duration_minutes); }
 					if (description !== undefined && description !== '') { setClauses.push('s.description = $description'); parameters.description = description; }
-					if (price !== undefined) { setClauses.push('s.price = $price'); parameters.price = neo4j.int(price); }
+					if (price !== undefined && price !== null) { setClauses.push('s.price = $price'); parameters.price = neo4j.int(price); }
 					// Removed is_system handling
 
 					// Start building the query

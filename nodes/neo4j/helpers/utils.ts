@@ -339,6 +339,15 @@ export const runCypherQuery: CypherRunner = async function (
 
 	} catch (error) {
         (error as any).itemIndex = itemIndex;
-		throw error;
+		// Throw a new Error containing the original message to potentially avoid issues with non-standard error objects
+		const errorMessage = error instanceof Error ? error.message : String(error);
+		const newError = new Error(`Error executing Cypher for item ${itemIndex}: ${errorMessage}`);
+		// Preserve stack trace if possible, though this might be difficult across re-throws
+		if (error instanceof Error && error.stack) {
+			(newError as any).originalStack = error.stack;
+		}
+		(newError as any).originalError = error; // Attach original error for inspection if needed
+		(newError as any).itemIndex = itemIndex; // Ensure itemIndex is preserved
+		throw newError;
 	}
 };

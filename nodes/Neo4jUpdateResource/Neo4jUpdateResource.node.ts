@@ -141,7 +141,7 @@ export class Neo4jUpdateResource implements INodeType {
 
 					if (type !== undefined && type !== '') { setClauses.push('r.type = $type'); parameters.type = type; }
 					if (name !== undefined && name !== '') { setClauses.push('r.name = $name'); parameters.name = name; }
-					if (capacity !== undefined) { setClauses.push('r.capacity = $capacity'); parameters.capacity = neo4j.int(capacity); }
+					if (capacity !== undefined && capacity !== null) { setClauses.push('r.capacity = $capacity'); parameters.capacity = neo4j.int(capacity); }
 
 					// Handle JSON properties update
 					let properties: IDataObject | undefined = undefined;
@@ -193,7 +193,17 @@ export class Neo4jUpdateResource implements INodeType {
 
 				} catch (itemError) {
 					// 8. Handle Item-Level Errors
-					// Simply re-throw the original error for now to see the root cause
+					if (this.continueOnFail(itemError)) {
+						const item = items[i];
+						const parsedError = parseNeo4jError(node, itemError);
+						const errorData = { ...item.json, error: parsedError };
+						returnData.push({
+							json: errorData,
+							error: new NodeOperationError(node, parsedError.message, { itemIndex: i, description: parsedError.description ?? undefined }),
+							pairedItem: { item: i }
+						});
+						continue;
+					}
 					throw itemError;
 				}
 			}
