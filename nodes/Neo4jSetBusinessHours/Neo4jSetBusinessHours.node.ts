@@ -3,7 +3,6 @@
 // ============================================================================
 import type {
 	IExecuteFunctions,
-	IDataObject,
 	INodeExecutionData,
 	INodeType,
 	INodeTypeDescription,
@@ -15,7 +14,6 @@ import neo4j, { Driver, Session, auth } from 'neo4j-driver';
 // --- IMPORTANT: Shared Utilities ---
 import {
 	parseNeo4jError,
-	convertNeo4jValueToJs, // Import the converter
 } from '../neo4j/helpers/utils';
 
 // --- Node Class Definition ---
@@ -50,7 +48,7 @@ export class Neo4jSetBusinessHours implements INodeType {
 			{
 				displayName: 'Hours Data (JSON Array)',
 				name: 'hoursData',
-				type: 'json',
+				type: 'string', // 保持為 string 類型以兼容 MCP
 				required: true,
 				default: '[\n  {\n    "day_of_week": 1,\n    "start_time": "09:00",\n    "end_time": "17:00"\n  }\n]',
 				description: '包含每天營業時間的 JSON 陣列。如果某天休息，則不包含該天的物件。',
@@ -103,69 +101,117 @@ export class Neo4jSetBusinessHours implements INodeType {
 				try {
 					// 5. Get Input Parameters
 					const businessId = this.getNodeParameter('businessId', i, '') as string;
-					const hoursDataJson = this.getNodeParameter('hoursData', i, '[]') as string;
+					const hoursDataRaw = this.getNodeParameter('hoursData', i, '[]') as string;
 
-					// Parse and validate hoursData
+					console.log('Raw hours data input:', hoursDataRaw);
+
+					// Parse and validate hoursData - 改進解析流程，更寬容地處理輸入
 					let hoursData: any[];
 					try {
-						hoursData = jsonParse(hoursDataJson);
+						// 處理可能的字符串包裹（如果 MCP 傳送了帶引號的字符串）
+						let jsonToParse = hoursDataRaw;
+						if (hoursDataRaw.startsWith('"') && hoursDataRaw.endsWith('"')) {
+							// 移除外層引號並處理轉義
+							jsonToParse = JSON.parse(hoursDataRaw);
+						}
+
+						hoursData = jsonParse(jsonToParse);
+
 						if (!Array.isArray(hoursData)) {
 							throw new NodeOperationError(node, 'Hours Data must be a valid JSON array.', { itemIndex: i });
 						}
-						// Basic validation for each entry (can be enhanced)
-						for (const entry of hoursData) {
-							if (typeof entry !== 'object' || entry === null ||
-							    typeof entry.day_of_week !== 'number' ||
-								typeof entry.start_time !== 'string' ||
-								typeof entry.end_time !== 'string' ||
-								!/^[0-9]+$/.test(String(entry.day_of_week)) || // Ensure integer
-								!/^[0-2][0-9]:[0-5][0-9]$/.test(entry.start_time) || // Basic HH:MM format
-								!/^[0-2][0-9]:[0-5][0-9]$/.test(entry.end_time))
-							{
-								throw new NodeOperationError(node, `Invalid entry in Hours Data array: ${JSON.stringify(entry)}. Required format: {"day_of_week": number, "start_time": "HH:MM", "end_time": "HH:MM"}`, { itemIndex: i });
-							}
-							// Ensure day_of_week is within 1-7
-							if (entry.day_of_week < 1 || entry.day_of_week > 7) {
+
+						console.log('Parsed hours data:', JSON.stringify(hoursData, null, 2));
+
+						// 處理並規範化每個條目
+						hoursData = hoursData.map(entry => {
+							// 確保 day_of_week 是數字
+							const dayOfWeek = typeof entry.day_of_week === 'string'
+								? parseInt(entry.day_of_week, 10)
+								: (entry.day_of_week || 0);
+
+							// 如果 day_of_week 範圍不對，報錯
+							if (isNaN(dayOfWeek) || dayOfWeek < 1 || dayOfWeek > 7) {
 								throw new NodeOperationError(node, `Invalid day_of_week (${entry.day_of_week}). Must be between 1 (Monday) and 7 (Sunday).`, { itemIndex: i });
 							}
-						}
+
+							// 確保時間格式正確
+							if (typeof entry.start_time !== 'string' || typeof entry.end_time !== 'string') {
+								throw new NodeOperationError(node, `Missing or invalid time format in entry: ${JSON.stringify(entry)}`, { itemIndex: i });
+							}
+
+							// 返回規範化的條目
+							return {
+								day_of_week: dayOfWeek,
+								start_time: entry.start_time,
+								end_time: entry.end_time
+							};
+						});
+
+						console.log('Normalized hours data:', JSON.stringify(hoursData, null, 2));
+
 					} catch (jsonError) {
+						console.error('JSON parsing error:', jsonError);
 						throw new NodeOperationError(node, `Invalid JSON in Hours Data field: ${jsonError.message}`, { itemIndex: i });
 					}
 
-					// 6. Define Cypher Query & Parameters
-					// This query first deletes old hours, then unwinds the new data to create new hours nodes and relationships.
-					const query = `
-						MATCH (b:Business {business_id: $businessId})
-						OPTIONAL MATCH (b)-[r:HAS_HOURS]->(oldBh:BusinessHours)
-						DELETE r, oldBh
-						WITH b
-						UNWIND $hoursData AS dayHours
-						CREATE (bh:BusinessHours {
-							business_id: $businessId,
-							day_of_week: toInteger(dayHours.day_of_week), // Ensure integer type
-							start_time: time(dayHours.start_time),
-							end_time: time(dayHours.end_time),
-							created_at: datetime()
-						})
-						MERGE (b)-[:HAS_HOURS]->(bh)
-						RETURN count(bh) AS hoursSetCount // Return count as confirmation
-					`;
-
-					const parameters: IDataObject = {
-						businessId,
-						hoursData, // Pass the parsed array
-					};
-
-					// 7. Execute Query (using session directly for complex transaction)
+					// 6. 執行 - 修改為兩個單獨的查詢，而不是一個事務
 					if (!session) {
 						throw new NodeOperationError(node, 'Neo4j session is not available.', { itemIndex: i });
 					}
-					const result = await session.run(query, parameters);
-					const count = result.records.length > 0 ? convertNeo4jValueToJs(result.records[0].get('hoursSetCount')) : 0;
 
-					returnData.push({ json: { success: true, businessId: businessId, hoursSetCount: count }, pairedItem: { item: i } });
+					// 先刪除現有的營業時間
+					const deleteQuery = `
+						MATCH (b:Business {business_id: $businessId})
+						OPTIONAL MATCH (b)-[r:HAS_HOURS]->(oldBh:BusinessHours)
+						DELETE r, oldBh
+						RETURN count(oldBh) as deletedCount
+					`;
 
+					this.logger.debug(`Executing delete query for businessId: ${businessId}`);
+					const deleteResult = await session.run(deleteQuery, { businessId });
+					const deletedCount = deleteResult.records[0].get('deletedCount').toNumber();
+					this.logger.debug(`Deleted ${deletedCount} existing business hours`);
+
+					// 只有當有營業時間資料時才創建新記錄
+					let hoursSetCount = 0;
+					if (hoursData.length > 0) {
+						// 創建新的營業時間
+						const createQuery = `
+							MATCH (b:Business {business_id: $businessId})
+							UNWIND $hoursData AS dayHours
+							CREATE (bh:BusinessHours {
+								business_id: $businessId,
+								day_of_week: dayHours.day_of_week,
+								start_time: time(dayHours.start_time),
+								end_time: time(dayHours.end_time),
+								created_at: datetime()
+							})
+							MERGE (b)-[:HAS_HOURS]->(bh)
+							RETURN count(bh) as createdCount
+						`;
+
+						this.logger.debug(`Executing create query for businessId: ${businessId} with ${hoursData.length} entries.`);
+						const createResult = await session.run(createQuery, {
+							businessId,
+							hoursData // 傳遞規範化後的資料
+						});
+
+						hoursSetCount = createResult.records[0].get('createdCount').toNumber();
+						this.logger.debug(`Created ${hoursSetCount} new business hours`);
+					} else {
+						this.logger.debug(`Skipping create query for businessId: ${businessId} as hoursData is empty.`);
+					}
+
+					returnData.push({
+						json: {
+							success: true,
+							businessId: businessId,
+							deletedCount: deletedCount,
+							hoursSetCount: hoursSetCount
+						},
+						pairedItem: { item: i }
+					});
 
 				} catch (itemError) {
 					// 8. Handle Item-Level Errors

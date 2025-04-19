@@ -544,7 +544,7 @@
     {
       "parameters": {
         "businessId": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Business_ID', ``, 'string') }}",
-        "hoursData": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Hours_Data', ``, 'json') }}"
+        "hoursData": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Hours_Data', '', 'string') }}"
       },
       "type": "n8n-nodes-neo4jtool.neo4jSetBusinessHoursTool",
       "typeVersion": 1,
@@ -602,7 +602,7 @@
     {
       "parameters": {
         "staffId": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Staff_ID', ``, 'string') }}",
-        "dayOfWeek": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Day_Of_Week', ``, 'number') }}",
+        "dayOfWeek": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('dayOfWeek', '', 'string') }}",
         "startTime": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Start_Time', ``, 'string') }}",
         "endTime": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('End_Time', ``, 'string') }}"
       },
@@ -628,7 +628,7 @@
         "startDateTime": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Start_Date_Time', ``, 'string') }}",
         "endDateTime": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('End_Date_Time', ``, 'string') }}",
         "requiredResourceType": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Required_Resource_Type', ``, 'string') }}",
-        "requiredResourceCapacity": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Required_Resource_Capacity', ``, 'number') }}",
+        "requiredResourceCapacity": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Required_Resource_Capacity', null, 'any') }}",
         "requiredStaffId": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Required_Staff_ID', ``, 'string') }}"
       },
       "type": "n8n-nodes-neo4jtool.neo4jFindAvailableSlotsTool",

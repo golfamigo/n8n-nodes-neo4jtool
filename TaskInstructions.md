@@ -605,6 +605,11 @@
         *   如果所有必要的檢查都通過，則將 `slot` 加入結果。
     5.  返回可用時間段列表 (UTC ISO 8601 格式)。
 
+		- **特別注意**：
+  - 該節點處理複雜的日期時間和數值計算，必須正確處理 Neo4j 返回的 Integer 和 DateTime 類型
+  - 在處理營業時間和其他屬性時，使用 `convertNeo4jValueToJs` 函數轉換 Neo4j 數據類型
+  - 日期時間比較需要考慮格式和時區問題
+
 ## 創建預約 (CreateBooking)
 
 請參考上方提供的 **Neo4j 資料庫 Schema** 和最新的 **NodeTemplate.ts.txt** 模板，開發一個名為 `CreateBooking` 的 n8n 節點。
@@ -645,3 +650,14 @@
 - **參數**:
     - `bookingId` (string, required)
 - **核心邏輯**: `execute` 方法應 `MATCH (bk:Booking {booking_id: $bookingId}) DETACH DELETE bk`。
+
+## 重要開發注意事項
+
+1. **處理 Neo4j 數據類型**：
+   - Neo4j 驅動程序返回的數據類型（如 Integer, DateTime 等）需要特殊處理才能在 JavaScript 中正確使用
+   - 請始終使用 `convertNeo4jValueToJs` 函數處理從 Neo4j 查詢返回的數據
+   - 特別是處理 Integer 類型時，請務必使用此函數進行轉換，否則可能導致不兼容的類型錯誤
+
+2. **查詢結果處理**：
+   - 使用 `runCypherQuery` 函數執行查詢並自動處理結果格式化
+   - 對於需要手動處理查詢結果的情況，記得使用 `convertNeo4jValueToJs` 處理每個返回的值

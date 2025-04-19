@@ -107,7 +107,9 @@ export class Neo4jFindStaffByExternalId implements INodeType {
 					const limit = this.getNodeParameter('limit', i, 50) as number;
 
 					// 6. Define Cypher Query & Parameters
-					let query = `MATCH (u:User {external_id: $externalId})-[:HAS_USER_ACCOUNT]->(st:Staff)`;
+					// 修正：修改關係方向，使用正確的 HAS_USER_ACCOUNT 關係方向
+					let query = `MATCH (u:User {external_id: $externalId})<-[:ACCOUNT_FOR_STAFF]-(st:Staff)`;
+
 					const parameters: IDataObject = { externalId, limit: neo4j.int(limit) };
 
 					if (businessId !== undefined && businessId !== '') {

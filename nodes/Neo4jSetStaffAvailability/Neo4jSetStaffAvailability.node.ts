@@ -14,7 +14,7 @@ import neo4j, { Driver, Session, auth } from 'neo4j-driver';
 
 // --- IMPORTANT: Shared Utilities ---
 import {
-	runCypherQuery, // Using session.run directly might be better here too
+	runCypherQuery,
 	parseNeo4jError,
 } from '../neo4j/helpers/utils';
 
@@ -50,15 +50,10 @@ export class Neo4jSetStaffAvailability implements INodeType {
 			{
 				displayName: 'Day of Week',
 				name: 'dayOfWeek',
-				type: 'number',
+				type: 'string', // 保持為 string 類型以確保 MCP 兼容性
 				required: true,
-				default: 1,
-				typeOptions: {
-					minValue: 1,
-					maxValue: 7,
-					numberStep: 1,
-				},
-				description: '星期幾 (1 = Monday, 7 = Sunday)', // Clarified numbering
+				default: '1',
+				description: '星期幾 (0-6, 0 是星期日, 1 是星期一)', // 更新為 0-6 數字系統
 			},
 			{
 				displayName: 'Start Time',
@@ -67,7 +62,7 @@ export class Neo4jSetStaffAvailability implements INodeType {
 				required: true,
 				default: '09:00',
 				placeholder: 'HH:MM',
-				description: '開始時間 (HH:MM 格式, UTC)',
+				description: '開始時間 (HH:MM 格式)',
 			},
 			{
 				displayName: 'End Time',
@@ -76,7 +71,7 @@ export class Neo4jSetStaffAvailability implements INodeType {
 				required: true,
 				default: '17:00',
 				placeholder: 'HH:MM',
-				description: '結束時間 (HH:MM 格式, UTC)',
+				description: '結束時間 (HH:MM 格式)',
 			},
 		],
 	};
@@ -117,45 +112,89 @@ export class Neo4jSetStaffAvailability implements INodeType {
 				try {
 					// 5. Get Input Parameters
 					const staffId = this.getNodeParameter('staffId', i, '') as string;
-					const dayOfWeek = this.getNodeParameter('dayOfWeek', i, 1) as number;
+					const dayOfWeekString = this.getNodeParameter('dayOfWeek', i, '1') as string; // 獲取為字串
 					const startTime = this.getNodeParameter('startTime', i, '09:00') as string;
 					const endTime = this.getNodeParameter('endTime', i, '17:00') as string;
 
-					// Basic validation for time format
+					// 詳細記錄接收到的參數
+					console.log('Setting staff availability with parameters:');
+					console.log('- staffId:', staffId);
+					console.log('- dayOfWeek (raw):', dayOfWeekString);
+					console.log('- startTime:', startTime);
+					console.log('- endTime:', endTime);
+
+					// 將 dayOfWeek 字串轉換為數字
+					const dayOfWeek = parseInt(dayOfWeekString, 10);
+					if (isNaN(dayOfWeek) || dayOfWeek < 0 || dayOfWeek > 6) {
+						throw new NodeOperationError(node, `Invalid Day of Week value: ${dayOfWeekString}. Must be a number between 0 and 6 (0 = Sunday, 6 = Saturday).`, { itemIndex: i });
+					}
+
+					console.log('- dayOfWeek (parsed):', dayOfWeek);
+
+					// 基本時間格式驗證
 					if (!/^[0-2][0-9]:[0-5][0-9]$/.test(startTime) || !/^[0-2][0-9]:[0-5][0-9]$/.test(endTime)) {
 						throw new NodeOperationError(node, 'Invalid Start or End Time format. Please use HH:MM.', { itemIndex: i });
 					}
 
-					// 6. Define Cypher Query & Parameters
-					// Use MERGE to create or update based on staffId and dayOfWeek
-					const query = `
-						MERGE (sa:StaffAvailability {staff_id: $staffId, day_of_week: $dayOfWeek})
-						ON CREATE SET
-							sa.start_time = time($startTime),
-							sa.end_time = time($endTime),
-							sa.created_at = datetime()
-						ON MATCH SET
-							sa.start_time = time($startTime),
-							sa.end_time = time($endTime),
-							sa.updated_at = datetime()
-						RETURN sa {.staff_id, .day_of_week, start_time: toString(sa.start_time), end_time: toString(sa.end_time)} AS availability // Return confirmation
-					`;
-					const parameters: IDataObject = {
-						staffId,
-						dayOfWeek: neo4j.int(dayOfWeek), // Ensure integer
-						startTime,
-						endTime,
-					};
-					const isWrite = true;
+					// 6. 分開查詢和更新以避免混合操作的問題
 
-					// 7. Execute Query
+					// 6a. 先檢查員工和星期是否存在
+					const checkQuery = `
+						MATCH (st:Staff {staff_id: $staffId})
+						RETURN st
+					`;
+					const checkParams: IDataObject = { staffId };
+
 					if (!session) {
 						throw new NodeOperationError(node, 'Neo4j session is not available.', { itemIndex: i });
 					}
-					// Using runCypherQuery here should be fine as MERGE returns data
-					const results = await runCypherQuery.call(this, session, query, parameters, isWrite, i);
-					returnData.push(...results);
 
+					const checkResults = await runCypherQuery.call(this, session, checkQuery, checkParams, false, i);
+					if (checkResults.length === 0) {
+						throw new NodeOperationError(node, `Staff with ID ${staffId} not found`, { itemIndex: i });
+					}
+
+					// 6b. 刪除現有可用性關係
+					const deleteQuery = `
+						MATCH (st:Staff {staff_id: $staffId})-[r:HAS_AVAILABILITY]->(sa:StaffAvailability)
+						WHERE sa.day_of_week = $dayOfWeek
+						DELETE r, sa
+						RETURN count(r) as deletedCount
+					`;
+					const deleteParams: IDataObject = {
+						staffId,
+						dayOfWeek: neo4j.int(dayOfWeek),
+					};
+
+					const deleteResults = await runCypherQuery.call(this, session, deleteQuery, deleteParams, true, i);
+					console.log(`Deleted ${deleteResults[0]?.json?.deletedCount || 0} existing availability records`);
+
+					// 6c. 創建新的可用性記錄
+					const createQuery = `
+						MATCH (st:Staff {staff_id: $staffId})
+						CREATE (st)-[:HAS_AVAILABILITY]->(sa:StaffAvailability {
+							staff_id: $staffId,
+							day_of_week: $dayOfWeek,
+							start_time: time($startTime),
+							end_time: time($endTime),
+							created_at: datetime()
+						})
+						RETURN sa {
+							.staff_id,
+							day_of_week: toInteger(sa.day_of_week),
+							start_time: toString(sa.start_time),
+							end_time: toString(sa.end_time)
+						} AS availability
+					`;
+					const createParams: IDataObject = {
+						staffId,
+						dayOfWeek: neo4j.int(dayOfWeek),
+						startTime,
+						endTime,
+					};
+
+					const createResults = await runCypherQuery.call(this, session, createQuery, createParams, true, i);
+					returnData.push(...createResults);
 
 				} catch (itemError) {
 					// 8. Handle Item-Level Errors
