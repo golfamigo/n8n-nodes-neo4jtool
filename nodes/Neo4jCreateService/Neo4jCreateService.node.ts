@@ -95,14 +95,7 @@ export class Neo4jCreateService implements INodeType {
 				default: 0,
 				description: '服務價格（整數，例如分）(可選)',
 			},
-			{
-				displayName: 'Category ID',
-				name: 'categoryId',
-				type: 'string',
-
-				default: '',
-				description: '關聯的 Category ID (可選)',
-			},
+			// REMOVED categoryId property
 		],
 	};
 
@@ -149,8 +142,8 @@ export class Neo4jCreateService implements INodeType {
 					const duration_minutes = this.getNodeParameter('duration_minutes', i, 30) as number;
 					const description = this.getNodeParameter('description', i, '') as string;
 					const price = this.getNodeParameter('price', i, undefined) as number | undefined; // Handle optional price
-					const categoryId = this.getNodeParameter('categoryId', i, undefined) as string | undefined; // Handle optional categoryId
-					const is_system = this.getNodeParameter('is_system', i, false) as boolean;
+					// REMOVED categoryId retrieval
+					// REMOVED is_system retrieval
 
 					// 6. Define Specific Cypher Query & Parameters
 					// Base query parts
@@ -162,7 +155,7 @@ export class Neo4jCreateService implements INodeType {
 							duration_minutes: $duration_minutes,
 							description: $description,
 							price: $price,
-							is_system: $is_system,
+							// REMOVED is_system property
 							created_at: datetime()
 						})
 					`;
@@ -177,15 +170,10 @@ export class Neo4jCreateService implements INodeType {
 						description,
 						// Handle optional price, ensuring it's an integer if provided
 						price: (price !== undefined) ? neo4j.int(price) : null,
-						is_system,
+						// REMOVED is_system parameter
 					};
 
-					// Handle optional category
-					if (categoryId !== undefined && categoryId !== '') {
-						matchClauses.push('MATCH (c:Category {category_id: $categoryId})');
-						mergeRelationClauses.push('MERGE (s)-[:BELONGS_TO_CATEGORY]->(c)');
-						parameters.categoryId = categoryId;
-					}
+					// REMOVED Handle optional category block
 
 					// Combine query parts
 					const query = [

@@ -91,13 +91,7 @@ export class Neo4jUpdateService implements INodeType {
 				default: undefined, // No default for optional number
 				description: '新的服務價格（整數，例如分）(可選)',
 			},
-			{
-				displayName: 'Category ID',
-				name: 'categoryId',
-				type: 'string',
-				default: '',
-				description: '新的或更新的 Category ID (可選, 留空以移除)',
-			},
+			// REMOVED categoryId property
 			// Removed is_system property
 		],
 	};
@@ -148,8 +142,7 @@ export class Neo4jUpdateService implements INodeType {
 					const duration_minutes = this.getNodeParameter('duration_minutes', i, undefined) as number | undefined;
 					const description = this.getNodeParameter('description', i, '') as string;
 					const price = this.getNodeParameter('price', i, undefined) as number | undefined;
-					// Temporarily commented out categoryId logic
-					// const categoryId = this.getNodeParameter('categoryId', i, '') as string;
+					// REMOVED categoryId retrieval
 					// Removed is_system parameter reading
 
 					// Build SET clause dynamically
@@ -171,17 +164,7 @@ export class Neo4jUpdateService implements INodeType {
 						query += `SET ${setClauses.join(', ')}\n`;
 					}
 
-					// Handle Category Relationship Update (Temporarily commented out)
-					// if (categoryId !== undefined) {
-					// 	// Remove existing category relationship first
-					// 	query += `OPTIONAL MATCH (s)-[r:BELONGS_TO_CATEGORY]->() DELETE r\n`;
-					// 	if (categoryId !== '') {
-					// 		// If a new categoryId is provided, match it and create the new relationship
-					// 		query += `WITH s MATCH (c:Category {category_id: $categoryId}) MERGE (s)-[:BELONGS_TO_CATEGORY]->(c)\n`;
-					// 		parameters.categoryId = categoryId;
-					// 	}
-					// 	// If categoryId is an empty string, we just removed the relationship.
-					// }
+					// REMOVED Handle Category Relationship Update block
 
 					// Add WITH clause if properties were set, before RETURN
 					if (setClauses.length > 0) {

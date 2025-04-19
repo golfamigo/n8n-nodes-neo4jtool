@@ -398,8 +398,7 @@
         "name": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Name', ``, 'string') }}",
         "duration_minutes": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Duration_Minutes', ``, 'number') }}",
         "description": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Description', ``, 'string') }}",
-        "price": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Price', ``, 'number') }}",
-        "categoryId": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Category_ID', ``, 'string') }}"
+        "price": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Price', ``, 'number') }}"
       },
       "type": "n8n-nodes-neo4jtool.neo4jCreateServiceTool",
       "typeVersion": 1,
@@ -422,8 +421,7 @@
         "name": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Name', ``, 'string') }}",
         "duration_minutes": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Duration_Minutes', ``, 'number') }}",
         "description": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Description', ``, 'string') }}",
-        "price": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Price', ``, 'number') }}",
-        "categoryId": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Category_ID', ``, 'string') }}"
+        "price": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Price', ``, 'number') }}"
       },
       "type": "n8n-nodes-neo4jtool.neo4jUpdateServiceTool",
       "typeVersion": 1,
@@ -551,8 +549,8 @@
       "type": "n8n-nodes-neo4jtool.neo4jSetBusinessHoursTool",
       "typeVersion": 1,
       "position": [
-        500,
-        -180
+        -400,
+        180
       ],
       "id": "4c5d6e7f-8081-8283-8485-868788898a8b",
       "name": "Neo4j: Set Business Hours",
@@ -570,8 +568,8 @@
       "type": "n8n-nodes-neo4jtool.neo4jGetBusinessHoursTool",
       "typeVersion": 1,
       "position": [
-        660,
-        -180
+        -240,
+        180
       ],
       "id": "5d6e7f80-8182-8384-8586-8788898a8b8c",
       "name": "Neo4j: Get Business Hours",
@@ -589,8 +587,8 @@
       "type": "n8n-nodes-neo4jtool.neo4jDeleteBusinessHoursTool",
       "typeVersion": 1,
       "position": [
-        820,
-        -180
+        -80,
+        180
       ],
       "id": "6e7f8081-8283-8485-8687-88898a8b8c8d",
       "name": "Neo4j: Delete Business Hours",
@@ -604,13 +602,15 @@
     {
       "parameters": {
         "staffId": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Staff_ID', ``, 'string') }}",
-        "availabilityData": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Availability_Data', ``, 'json') }}"
+        "dayOfWeek": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Day_Of_Week', ``, 'number') }}",
+        "startTime": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Start_Time', ``, 'string') }}",
+        "endTime": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('End_Time', ``, 'string') }}"
       },
       "type": "n8n-nodes-neo4jtool.neo4jSetStaffAvailabilityTool",
       "typeVersion": 1,
       "position": [
-        500,
-        -60
+        -700,
+        180
       ],
       "id": "7f808182-8384-8586-8788-898a8b8c8d8e",
       "name": "Neo4j: Set Staff Availability",
@@ -627,14 +627,15 @@
         "serviceId": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Service_ID', ``, 'string') }}",
         "startDateTime": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Start_Date_Time', ``, 'string') }}",
         "endDateTime": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('End_Date_Time', ``, 'string') }}",
-        "staffId": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Staff_ID', ``, 'string') }}",
-        "resourceId": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Resource_ID', ``, 'string') }}"
+        "requiredResourceType": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Required_Resource_Type', ``, 'string') }}",
+        "requiredResourceCapacity": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Required_Resource_Capacity', ``, 'number') }}",
+        "requiredStaffId": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Required_Staff_ID', ``, 'string') }}"
       },
       "type": "n8n-nodes-neo4jtool.neo4jFindAvailableSlotsTool",
       "typeVersion": 1,
       "position": [
-        660,
-        -60
+        -540,
+        180
       ],
       "id": "80818283-8485-8687-8889-8a8b8c8d8e8f",
       "name": "Neo4j: Find Available Slots",
@@ -650,7 +651,7 @@
         "customerId": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Customer_ID', ``, 'string') }}",
         "businessId": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Business_ID', ``, 'string') }}",
         "serviceId": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Service_ID', ``, 'string') }}",
-        "booking_time": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Booking_Time', ``, 'string') }}",
+        "bookingTime": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Booking_Time', ``, 'string') }}",
         "staffId": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Staff_ID', ``, 'string') }}",
         "resourceId": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Resource_ID', ``, 'string') }}",
         "notes": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Notes', ``, 'string') }}"
@@ -658,10 +659,10 @@
       "type": "n8n-nodes-neo4jtool.neo4jCreateBookingTool",
       "typeVersion": 1,
       "position": [
-        500,
-        60
+        -400,
+        300
       ],
-      "id": "81828384-8586-8788-898a-8b8c8d8e8f90",
+      "id": "91828384-8586-8788-898a-8b8c8d8e8f90",
       "name": "Neo4j: Create Booking",
       "credentials": {
         "neo4jApi": {
@@ -673,19 +674,19 @@
     {
       "parameters": {
         "bookingId": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Booking_ID', ``, 'string') }}",
-        "booking_time": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Booking_Time', ``, 'string') }}",
+        "status": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Status', ``, 'string') }}",
+        "bookingTime": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Booking_Time', ``, 'string') }}",
         "staffId": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Staff_ID', ``, 'string') }}",
         "resourceId": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Resource_ID', ``, 'string') }}",
-        "status": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Status', ``, 'string') }}",
         "notes": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Notes', ``, 'string') }}"
       },
       "type": "n8n-nodes-neo4jtool.neo4jUpdateBookingTool",
       "typeVersion": 1,
       "position": [
-        660,
-        60
+        -240,
+        300
       ],
-      "id": "82838485-8687-8889-8a8b-8c8d8e8f9091",
+      "id": "a2838485-8687-8889-8a8b-8c8d8e8f9091",
       "name": "Neo4j: Update Booking",
       "credentials": {
         "neo4jApi": {
@@ -701,10 +702,10 @@
       "type": "n8n-nodes-neo4jtool.neo4jDeleteBookingTool",
       "typeVersion": 1,
       "position": [
-        820,
-        60
+        -80,
+        300
       ],
-      "id": "83848586-8788-898a-8b8c-8d8e8f909192",
+      "id": "b3848586-8788-898a-8b8c-8d8e8f909192",
       "name": "Neo4j: Delete Booking",
       "credentials": {
         "neo4jApi": {
@@ -715,43 +716,147 @@
     }
   ],
   "connections": {
-    "Neo4j: Create User": { "ai_tool": [ [ { "node": "MCP Server Trigger", "type": "ai_tool", "index": 0 } ] ] },
-    "Neo4j: Update User": { "ai_tool": [ [ { "node": "MCP Server Trigger", "type": "ai_tool", "index": 0 } ] ] },
-    "Neo4j: Find User by External ID": { "ai_tool": [ [ { "node": "MCP Server Trigger", "type": "ai_tool", "index": 0 } ] ] },
-    "Neo4j: Create Customer": { "ai_tool": [ [ { "node": "MCP Server Trigger", "type": "ai_tool", "index": 0 } ] ] },
-    "Neo4j: Update Customer": { "ai_tool": [ [ { "node": "MCP Server Trigger", "type": "ai_tool", "index": 0 } ] ] },
-    "Neo4j: Delete Customer": { "ai_tool": [ [ { "node": "MCP Server Trigger", "type": "ai_tool", "index": 0 } ] ] },
-    "Neo4j: Find Customer by External ID & Business ID": { "ai_tool": [ [ { "node": "MCP Server Trigger", "type": "ai_tool", "index": 0 } ] ] },
-    "Neo4j: Create Staff": { "ai_tool": [ [ { "node": "MCP Server Trigger", "type": "ai_tool", "index": 0 } ] ] },
-    "Neo4j: Update Staff": { "ai_tool": [ [ { "node": "MCP Server Trigger", "type": "ai_tool", "index": 0 } ] ] },
-    "Neo4j: Delete Staff": { "ai_tool": [ [ { "node": "MCP Server Trigger", "type": "ai_tool", "index": 0 } ] ] },
-    "Neo4j: Find Staff by External ID": { "ai_tool": [ [ { "node": "MCP Server Trigger", "type": "ai_tool", "index": 0 } ] ] },
-    "Neo4j: Link Staff to User": { "ai_tool": [ [ { "node": "MCP Server Trigger", "type": "ai_tool", "index": 0 } ] ] },
-    "Neo4j: Link Staff to Service": { "ai_tool": [ [ { "node": "MCP Server Trigger", "type": "ai_tool", "index": 0 } ] ] },
-    "Neo4j: Create Business": { "ai_tool": [ [ { "node": "MCP Server Trigger", "type": "ai_tool", "index": 0 } ] ] },
-    "Neo4j: Update Business": { "ai_tool": [ [ { "node": "MCP Server Trigger", "type": "ai_tool", "index": 0 } ] ] },
-    "Neo4j: Delete Business": { "ai_tool": [ [ { "node": "MCP Server Trigger", "type": "ai_tool", "index": 0 } ] ] },
-    "Neo4j: Find Business by Name": { "ai_tool": [ [ { "node": "MCP Server Trigger", "type": "ai_tool", "index": 0 } ] ] },
-    "Neo4j: Find Services by Business": { "ai_tool": [ [ { "node": "MCP Server Trigger", "type": "ai_tool", "index": 0 } ] ] },
-    "Neo4j: Create Service": { "ai_tool": [ [ { "node": "MCP Server Trigger", "type": "ai_tool", "index": 0 } ] ] },
-    "Neo4j: Update Service": { "ai_tool": [ [ { "node": "MCP Server Trigger", "type": "ai_tool", "index": 0 } ] ] },
-    "Neo4j: Delete Service": { "ai_tool": [ [ { "node": "MCP Server Trigger", "type": "ai_tool", "index": 0 } ] ] },
-    "Neo4j: Create Resource": { "ai_tool": [ [ { "node": "MCP Server Trigger", "type": "ai_tool", "index": 0 } ] ] },
-    "Neo4j: Update Resource": { "ai_tool": [ [ { "node": "MCP Server Trigger", "type": "ai_tool", "index": 0 } ] ] },
-    "Neo4j: Delete Resource": { "ai_tool": [ [ { "node": "MCP Server Trigger", "type": "ai_tool", "index": 0 } ] ] },
-    "Neo4j: List Resource Types": { "ai_tool": [ [ { "node": "MCP Server Trigger", "type": "ai_tool", "index": 0 } ] ] },
-    "Neo4j: Set Business Hours": { "ai_tool": [ [ { "node": "MCP Server Trigger", "type": "ai_tool", "index": 0 } ] ] },
-    "Neo4j: Get Business Hours": { "ai_tool": [ [ { "node": "MCP Server Trigger", "type": "ai_tool", "index": 0 } ] ] },
-    "Neo4j: Delete Business Hours": { "ai_tool": [ [ { "node": "MCP Server Trigger", "type": "ai_tool", "index": 0 } ] ] },
-    "Neo4j: Set Staff Availability": { "ai_tool": [ [ { "node": "MCP Server Trigger", "type": "ai_tool", "index": 0 } ] ] },
-    "Neo4j: Find Available Slots": { "ai_tool": [ [ { "node": "MCP Server Trigger", "type": "ai_tool", "index": 0 } ] ] },
-    "Neo4j: Create Booking": { "ai_tool": [ [ { "node": "MCP Server Trigger", "type": "ai_tool", "index": 0 } ] ] },
-    "Neo4j: Update Booking": { "ai_tool": [ [ { "node": "MCP Server Trigger", "type": "ai_tool", "index": 0 } ] ] },
-    "Neo4j: Delete Booking": { "ai_tool": [ [ { "node": "MCP Server Trigger", "type": "ai_tool", "index": 0 } ] ] }
+    "MCP Server Trigger": {
+      "main": [
+        [
+          {
+            "id": "368638af-0171-4bd3-b8af-6af0f6bc9aca",
+            "name": "Neo4j: Create User"
+          },
+          {
+            "id": "10800aef-3422-4bb3-a3aa-479583dcf7f3",
+            "name": "Neo4j: Update User"
+          },
+          {
+            "id": "a1b2c3d4-e5f6-7890-1234-567890abcdef",
+            "name": "Neo4j: Find User by External ID"
+          },
+          {
+            "id": "b2c3d4e5-f6a7-8901-2345-67890abcdef1",
+            "name": "Neo4j: Create Customer"
+          },
+          {
+            "id": "c3d4e5f6-a7b8-9012-3456-7890abcdef12",
+            "name": "Neo4j: Update Customer"
+          },
+          {
+            "id": "d4e5f6a7-b8c9-0123-4567-890abcdef123",
+            "name": "Neo4j: Delete Customer"
+          },
+          {
+            "id": "e5f6a7b8-c9d0-1234-5678-90abcdef1234",
+            "name": "Neo4j: Find Customer by External ID & Business ID"
+          },
+          {
+            "id": "9b7d15ee-d797-490b-a185-de6a46b552f0",
+            "name": "Neo4j: Create Staff"
+          },
+          {
+            "id": "5449deb3-392c-480c-a3dd-f0069a8adfaa",
+            "name": "Neo4j: Update Staff"
+          },
+          {
+            "id": "59f6727b-25f0-44cd-9409-dfda1421362b",
+            "name": "Neo4j: Delete Staff"
+          },
+          {
+            "id": "f6a7b8c9-d0e1-2345-6789-0abcdef12345",
+            "name": "Neo4j: Find Staff by External ID"
+          },
+          {
+            "id": "0a1b2c3d-4e5f-6a7b-8c9d-0e1f2a3b4c5d",
+            "name": "Neo4j: Link Staff to User"
+          },
+          {
+            "id": "1b2c3d4e-5f6a-7b8c-9d0e-1f2a3b4c5d6e",
+            "name": "Neo4j: Link Staff to Service"
+          },
+          {
+            "id": "2c3d4e5f-6a7b-8c9d-0e1f-2a3b4c5d6e7f",
+            "name": "Neo4j: Create Business"
+          },
+          {
+            "id": "3d4e5f6a-7b8c-9d0e-1f2a-3b4c5d6e7f80",
+            "name": "Neo4j: Update Business"
+          },
+          {
+            "id": "4e5f6a7b-8c9d-0e1f-2a3b-4c5d6e7f8081",
+            "name": "Neo4j: Delete Business"
+          },
+          {
+            "id": "5f6a7b8c-9d0e-1f2a-3b4c-5d6e7f808182",
+            "name": "Neo4j: Find Business by Name"
+          },
+          {
+            "id": "6a7b8c9d-0e1f-2a3b-4c5d-6e7f80818283",
+            "name": "Neo4j: Find Services by Business"
+          },
+          {
+            "id": "7b8c9d0e-1f2a-3b4c-5d6e-7f8081828384",
+            "name": "Neo4j: Create Service"
+          },
+          {
+            "id": "8c9d0e1f-2a3b-4c5d-6e7f-808182838485",
+            "name": "Neo4j: Update Service"
+          },
+          {
+            "id": "9d0e1f2a-3b4c-5d6e-7f80-818283848586",
+            "name": "Neo4j: Delete Service"
+          },
+          {
+            "id": "0e1f2a3b-4c5d-6e7f-8081-828384858687",
+            "name": "Neo4j: Create Resource"
+          },
+          {
+            "id": "1f2a3b4c-5d6e-7f80-8182-838485868788",
+            "name": "Neo4j: Update Resource"
+          },
+          {
+            "id": "2a3b4c5d-6e7f-8081-8283-848586878889",
+            "name": "Neo4j: Delete Resource"
+          },
+          {
+            "id": "3b4c5d6e-7f80-8182-8384-85868788898a",
+            "name": "Neo4j: List Resource Types"
+          },
+          {
+            "id": "4c5d6e7f-8081-8283-8485-868788898a8b",
+            "name": "Neo4j: Set Business Hours"
+          },
+          {
+            "id": "5d6e7f80-8182-8384-8586-8788898a8b8c",
+            "name": "Neo4j: Get Business Hours"
+          },
+          {
+            "id": "6e7f8081-8283-8485-8687-88898a8b8c8d",
+            "name": "Neo4j: Delete Business Hours"
+          },
+          {
+            "id": "7f808182-8384-8586-8788-898a8b8c8d8e",
+            "name": "Neo4j: Set Staff Availability"
+          },
+          {
+            "id": "80818283-8485-8687-8889-8a8b8c8d8e8f",
+            "name": "Neo4j: Find Available Slots"
+          },
+          {
+            "id": "91828384-8586-8788-898a-8b8c8d8e8f90",
+            "name": "Neo4j: Create Booking"
+          },
+          {
+            "id": "a2838485-8687-8889-8a8b-8c8d8e8f9091",
+            "name": "Neo4j: Update Booking"
+          },
+          {
+            "id": "b3848586-8788-898a-8b8c-8d8e8f909192",
+            "name": "Neo4j: Delete Booking"
+          }
+        ]
+      ]
+    }
   },
   "pinData": {},
   "meta": {
-    "templateCredsSetupCompleted": true,
-    "instanceId": "6e5d961b5ab8924e287fc6d1a85a0a4b408d0fcb67963cef86e44b8085f20f41"
+    "templateCredsSetupCompleted": true
   }
 }
