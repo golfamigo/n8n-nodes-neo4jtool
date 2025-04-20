@@ -661,3 +661,121 @@
 2. **查詢結果處理**：
    - 使用 `runCypherQuery` 函數執行查詢並自動處理結果格式化
    - 對於需要手動處理查詢結果的情況，記得使用 `convertNeo4jValueToJs` 處理每個返回的值
+
+# 時間處理指南
+
+## 基本原則
+
+所有節點在處理時間時必須遵循以下原則：
+
+1. **統一使用 UTC 時區**：
+   - 所有內部時間儲存和計算均使用 UTC 時區
+   - 輸入時間若無明確時區，預設視為 UTC
+   - 輸出時間始終包含時區信息 (ISO 8601 格式)
+
+2. **統一使用共用函數**：
+   - 使用 `timeUtils.ts` 中提供的函數處理所有時間相關操作
+   - 禁止直接操作時間字符串或自行實現時間轉換邏輯
+
+3. **清晰的參數說明**：
+   - 所有時間輸入參數必須明確標示格式要求
+   - 例如：`預約時間 (ISO 8601 格式, 需含時區)`
+
+## 時間處理工具函數
+
+`timeUtils.ts` 提供以下主要函數：
+
+- `normalizeDateTime`: 將任意時間輸入轉換為標準 ISO 8601 UTC 字符串
+- `normalizeTimeOnly`: 提取時間部分 (HH:MM:SS)
+- `toNeo4jDateTimeString`: 轉換為適用於 Neo4j datetime() 函數的格式
+- `toNeo4jTimeString`: 轉換為適用於 Neo4j time() 函數的格式
+- `compareTimeOnly`: 比較兩個時間值 (僅時間部分)
+- `isTimeInRange`: 檢查時間是否在特定範圍內
+- `addMinutesToDateTime`: 在日期時間上添加分鐘數
+- `getDayOfWeek`: 獲取指定日期是星期幾 (1-7)
+- `generateTimeSlots`: 生成指定範圍內的時間槽
+- `generateTimeSlotsWithBusinessHours`: 生成考慮業務營業時間的時間槽
+
+## 資料結構時間格式標準
+
+| 節點類型 | 時間屬性 | 儲存格式 | 備註 |
+|---------|---------|---------|------|
+| Business | created_at, updated_at | Neo4j DateTime | 存儲為 UTC |
+| Staff | created_at, updated_at | Neo4j DateTime | 存儲為 UTC |
+| StaffAvailability | start_time, end_time | Neo4j Time | 表示 UTC 時間 |
+| BusinessHours | start_time, end_time | Neo4j Time | 表示 UTC 時間 |
+| Booking | booking_time | Neo4j DateTime | 存儲為 UTC |
+
+## 時間處理最佳實踐
+
+### 1. 在 Cypher 查詢中使用
+
+```cypher
+// 良好示例：使用參數化查詢和適當的類型轉換
+MATCH (b:Business {business_id: $businessId})
+CREATE (bh:BusinessHours {
+  day_of_week: 1,
+  start_time: time($startTime),  // 使用 $startTime 參數
+  end_time: time($endTime),      // 使用 $endTime 參數
+  created_at: datetime()         // 使用 Neo4j 內建函數
+})
+CREATE (b)-[:HAS_HOURS]->(bh)
+```
+
+### 2. 在 TypeScript 中使用
+
+```typescript
+// 良好示例：使用 timeUtils 函數
+import { toNeo4jTimeString, normalizeDateTime } from '../neo4j/helpers/timeUtils';
+
+// 處理輸入參數
+const startTimeParam = toNeo4jTimeString(this.getNodeParameter('startTime', i));
+const endTimeParam = toNeo4jTimeString(this.getNodeParameter('endTime', i));
+
+// 執行查詢
+const query = `
+  MATCH (b:Business {business_id: $businessId})
+  CREATE (bh:BusinessHours {
+    day_of_week: $dayOfWeek,
+    start_time: time($startTime),
+    end_time: time($endTime),
+    created_at: datetime()
+  })
+  CREATE (b)-[:HAS_HOURS]->(bh)
+  RETURN bh
+`;
+
+const parameters = {
+  businessId,
+  dayOfWeek,
+  startTime: startTimeParam,
+  endTime: endTimeParam
+};
+
+// 執行查詢
+const results = await runCypherQuery.call(this, session, query, parameters, true, i);
+```
+
+### 3. 處理返回結果
+
+```typescript
+// 良好示例：正確處理返回的時間值
+import { normalizeDateTime } from '../neo4j/helpers/timeUtils';
+
+// 在結果中處理日期時間
+const bookingTime = normalizeDateTime(record.get('booking_time'));
+```
+
+## 常見錯誤和避免方法
+
+1. **直接比較不同格式時間**：
+   - ❌ 錯誤: `bh.start_time <= time(slotStart)`
+   - ✅ 正確: `time(toString(bh.start_time)) <= time(toString(slotStart))`
+
+2. **忽略時區處理**：
+   - ❌ 錯誤: `booking_time: new Date(bookingTime).toISOString()`
+   - ✅ 正確: `booking_time: datetime(toNeo4jDateTimeString(bookingTime))`
+
+3. **字符串拼接或處理日期時間**：
+   - ❌ 錯誤: `startTime.split('T')[1].split('.')[0]`
+   - ✅ 正確: `normalizeTimeOnly(startTime)`
