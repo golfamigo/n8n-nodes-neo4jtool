@@ -1,0 +1,243 @@
+// ============================================================================
+// Neo4j 初始化程式 - 建立必要的約束和索引
+// ============================================================================
+
+// 刪除所有現有的約束和索引（小心使用！）
+// CALL apoc.schema.assert({}, {}, true);
+
+// 注意: 在生產環境中，不應隨意刪除現有的約束和索引，而應該小心地添加新的約束和索引
+
+// ============================================================================
+// Business 節點的約束和索引
+// ============================================================================
+
+// 唯一性約束
+CREATE CONSTRAINT constraint_business_id IF NOT EXISTS
+FOR (b:Business) REQUIRE b.business_id IS UNIQUE;
+
+// 索引（提高查詢效率）
+CREATE INDEX index_business_name IF NOT EXISTS
+FOR (b:Business) ON (b.name);
+
+CREATE INDEX index_business_type IF NOT EXISTS
+FOR (b:Business) ON (b.type);
+
+CREATE INDEX index_business_address IF NOT EXISTS
+FOR (b:Business) ON (b.address);
+
+CREATE INDEX index_business_phone IF NOT EXISTS
+FOR (b:Business) ON (b.phone);
+
+CREATE INDEX index_business_email IF NOT EXISTS
+FOR (b:Business) ON (b.email);
+
+CREATE INDEX index_business_description IF NOT EXISTS
+FOR (b:Business) ON (b.description);
+
+CREATE INDEX index_business_booking_mode IF NOT EXISTS
+FOR (b:Business) ON (b.booking_mode);
+
+// ============================================================================
+// Resource 節點的約束和索引
+// ============================================================================
+
+// 唯一性約束
+CREATE CONSTRAINT constraint_resource_id IF NOT EXISTS
+FOR (r:Resource) REQUIRE r.resource_id IS UNIQUE;
+
+// 索引
+CREATE INDEX index_resource_business_id IF NOT EXISTS
+FOR (r:Resource) ON (r.business_id);
+
+CREATE INDEX index_resource_type IF NOT EXISTS
+FOR (r:Resource) ON (r.type);
+
+CREATE INDEX index_resource_name IF NOT EXISTS
+FOR (r:Resource) ON (r.name);
+
+// ============================================================================
+// Service 節點的約束和索引
+// ============================================================================
+
+// 唯一性約束
+CREATE CONSTRAINT constraint_service_id IF NOT EXISTS
+FOR (s:Service) REQUIRE s.service_id IS UNIQUE;
+
+// 索引
+CREATE INDEX index_service_name IF NOT EXISTS
+FOR (s:Service) ON (s.name);
+
+// ============================================================================
+// Staff 節點的約束和索引
+// ============================================================================
+
+// 唯一性約束
+CREATE CONSTRAINT constraint_staff_id IF NOT EXISTS
+FOR (st:Staff) REQUIRE st.staff_id IS UNIQUE;
+
+// 索引
+CREATE INDEX index_staff_business_id IF NOT EXISTS
+FOR (st:Staff) ON (st.business_id);
+
+CREATE INDEX index_staff_name IF NOT EXISTS
+FOR (st:Staff) ON (st.name);
+
+// ============================================================================
+// StaffAvailability 節點的約束和索引
+// ============================================================================
+
+// 索引
+CREATE INDEX index_staff_availability_staff_id IF NOT EXISTS
+FOR (sa:StaffAvailability) ON (sa.staff_id);
+
+CREATE INDEX index_staff_availability_day_of_week IF NOT EXISTS
+FOR (sa:StaffAvailability) ON (sa.day_of_week);
+
+// ============================================================================
+// Booking 節點的約束和索引
+// ============================================================================
+
+// 唯一性約束
+CREATE CONSTRAINT constraint_booking_id IF NOT EXISTS
+FOR (bk:Booking) REQUIRE bk.booking_id IS UNIQUE;
+
+// 索引
+CREATE INDEX index_booking_customer_id IF NOT EXISTS
+FOR (bk:Booking) ON (bk.customer_id);
+
+CREATE INDEX index_booking_business_id IF NOT EXISTS
+FOR (bk:Booking) ON (bk.business_id);
+
+CREATE INDEX index_booking_service_id IF NOT EXISTS
+FOR (bk:Booking) ON (bk.service_id);
+
+CREATE INDEX index_booking_time IF NOT EXISTS
+FOR (bk:Booking) ON (bk.booking_time);
+
+CREATE INDEX index_booking_status IF NOT EXISTS
+FOR (bk:Booking) ON (bk.status);
+
+// ============================================================================
+// Customer 節點的約束和索引
+// ============================================================================
+
+// 唯一性約束
+CREATE CONSTRAINT constraint_customer_id IF NOT EXISTS
+FOR (c:Customer) REQUIRE c.customer_id IS UNIQUE;
+
+// 索引
+CREATE INDEX index_customer_business_id IF NOT EXISTS
+FOR (c:Customer) ON (c.business_id);
+
+CREATE INDEX index_customer_name IF NOT EXISTS
+FOR (c:Customer) ON (c.name);
+
+// ============================================================================
+// User 節點的約束和索引
+// ============================================================================
+
+// 唯一性約束
+CREATE CONSTRAINT constraint_user_id IF NOT EXISTS
+FOR (u:User) REQUIRE u.id IS UNIQUE;
+
+CREATE CONSTRAINT constraint_user_external_id IF NOT EXISTS
+FOR (u:User) REQUIRE u.external_id IS UNIQUE;
+
+CREATE CONSTRAINT constraint_user_email IF NOT EXISTS
+FOR (u:User) REQUIRE u.email IS UNIQUE;
+
+CREATE CONSTRAINT constraint_user_phone IF NOT EXISTS
+FOR (u:User) REQUIRE u.phone IS UNIQUE;
+
+// ============================================================================
+// BusinessHours 節點的約束和索引
+// ============================================================================
+
+// 索引
+CREATE INDEX index_business_hours_business_id IF NOT EXISTS
+FOR (bh:BusinessHours) ON (bh.business_id);
+
+CREATE INDEX index_business_hours_day_of_week IF NOT EXISTS
+FOR (bh:BusinessHours) ON (bh.day_of_week);
+
+// ============================================================================
+// MembershipLevel 節點的約束和索引
+// ============================================================================
+
+// 唯一性約束
+CREATE CONSTRAINT constraint_membership_level_name IF NOT EXISTS
+FOR (ml:MembershipLevel) REQUIRE ml.level_name IS UNIQUE;
+
+CREATE CONSTRAINT constraint_membership_business_id IF NOT EXISTS
+FOR (ml:MembershipLevel) REQUIRE ml.business_id IS UNIQUE;
+
+// 索引
+CREATE INDEX index_membership_level_id IF NOT EXISTS
+FOR (ml:MembershipLevel) ON (ml.membership_level_id);
+
+// ============================================================================
+// Advertisement 節點的約束和索引
+// ============================================================================
+
+// 唯一性約束
+CREATE CONSTRAINT constraint_advertisement_id IF NOT EXISTS
+FOR (ad:Advertisement) REQUIRE ad.advertisement_id IS UNIQUE;
+
+// 索引
+CREATE INDEX index_advertisement_business_id IF NOT EXISTS
+FOR (ad:Advertisement) ON (ad.business_id);
+
+// ============================================================================
+// Payment 節點的約束和索引
+// ============================================================================
+
+// 唯一性約束
+CREATE CONSTRAINT constraint_payment_id IF NOT EXISTS
+FOR (p:Payment) REQUIRE p.payment_id IS UNIQUE;
+
+// 索引
+CREATE INDEX index_payment_booking_id IF NOT EXISTS
+FOR (p:Payment) ON (p.booking_id);
+
+// ============================================================================
+// Subscription 節點的約束和索引
+// ============================================================================
+
+// 唯一性約束
+CREATE CONSTRAINT constraint_subscription_id IF NOT EXISTS
+FOR (s:Subscription) REQUIRE s.subscription_id IS UNIQUE;
+
+// 索引
+CREATE INDEX index_subscription_service_id IF NOT EXISTS
+FOR (s:Subscription) ON (s.service_id);
+
+CREATE INDEX index_subscription_customer_id IF NOT EXISTS
+FOR (s:Subscription) ON (s.customer_id);
+
+// ============================================================================
+// 修正資料結構中的已知問題
+// ============================================================================
+
+// 1. 修正 BusinessHours.day_of_week 的類型 (從 FLOAT 改為 INTEGER)
+MATCH (bh:BusinessHours)
+WITH bh, toInteger(bh.day_of_week) AS integer_day_of_week
+SET bh.day_of_week = integer_day_of_week;
+
+// 2. 統一 Staff 和 User 的關係名稱 (使用 HAS_USER_ACCOUNT)
+MATCH (st:Staff)-[r:ACCOUNT_FOR_STAFF]->(u:User)
+WHERE NOT (st)-[:HAS_USER_ACCOUNT]->(u)
+MERGE (st)-[:HAS_USER_ACCOUNT]->(u)
+DELETE r;
+
+// ============================================================================
+// 驗證初始化結果
+// ============================================================================
+
+// 列出所有約束
+CALL db.constraints();
+
+// 列出所有索引
+CALL db.indexes();
+
+// 顯示資料庫結構
+CALL db.schema.visualization();
