@@ -18,6 +18,18 @@ import {
 	parseNeo4jError,
 } from '../neo4j/helpers/utils'; // Adjusted path relative to new location
 
+// --- 引入時間處理工具函數 ---
+import {
+	toNeo4jDateTimeString,
+
+	// 其他時間處理函數
+	normalizeDateTime as _normalizeDateTime,
+	normalizeTimeOnly as _normalizeTimeOnly,
+	toNeo4jTimeString as _toNeo4jTimeString,
+	addMinutesToDateTime as _addMinutesToDateTime,
+	TIME_SETTINGS as _TIME_SETTINGS
+} from '../neo4j/helpers/timeUtils';
+
 // --- Node Class Definition ---
 export class Neo4jCreateBooking implements INodeType {
 
@@ -143,9 +155,16 @@ export class Neo4jCreateBooking implements INodeType {
 					const customerId = this.getNodeParameter('customerId', i, '') as string;
 					const businessId = this.getNodeParameter('businessId', i, '') as string;
 					const serviceId = this.getNodeParameter('serviceId', i, '') as string;
-					const bookingTime = this.getNodeParameter('bookingTime', i, '') as string;
+					const rawBookingTime = this.getNodeParameter('bookingTime', i, '') as string;
 					const staffId = this.getNodeParameter('staffId', i, '') as string;
 					const notes = this.getNodeParameter('notes', i, '') as string;
+
+					// 使用時間處理工具規範化預約時間，確保 UTC 格式一致
+					const bookingTime = toNeo4jDateTimeString(rawBookingTime);
+
+					if (!bookingTime) {
+						throw new NodeOperationError(node, `Invalid booking time format: ${rawBookingTime}. Please provide a valid ISO 8601 datetime.`, { itemIndex: i });
+					}
 
 					// 6. Define Specific Cypher Query & Parameters
 					// Base query parts
@@ -160,7 +179,7 @@ export class Neo4jCreateBooking implements INodeType {
 							customer_id: $customerId,
 							business_id: $businessId,
 							service_id: $serviceId,
-							booking_time: datetime($bookingTime), // Convert ISO string to Neo4j datetime
+							booking_time: datetime($bookingTime), // 使用規範化的 ISO 字符串
 							status: 'Confirmed',
 							notes: $notes,
 							created_at: datetime()
@@ -177,7 +196,7 @@ export class Neo4jCreateBooking implements INodeType {
 						customerId,
 						businessId,
 						serviceId,
-						bookingTime,
+						bookingTime, // 使用規範化後的時間
 						notes,
 					};
 

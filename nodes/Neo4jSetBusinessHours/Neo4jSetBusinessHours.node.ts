@@ -16,6 +16,18 @@ import {
 	parseNeo4jError,
 } from '../neo4j/helpers/utils';
 
+// --- 引入時間處理工具函數 ---
+import {
+	toNeo4jTimeString,
+	normalizeTimeOnly,
+
+	// 以下保留供未來擴展使用
+	normalizeDateTime as _normalizeDateTime,
+	toNeo4jDateTimeString as _toNeo4jDateTimeString,
+	addMinutesToDateTime as _addMinutesToDateTime,
+	TIME_SETTINGS as _TIME_SETTINGS,
+} from '../neo4j/helpers/timeUtils';
+
 // --- Node Class Definition ---
 export class Neo4jSetBusinessHours implements INodeType {
 
@@ -123,7 +135,7 @@ export class Neo4jSetBusinessHours implements INodeType {
 
 						console.log('Parsed hours data:', JSON.stringify(hoursData, null, 2));
 
-						// 處理並規範化每個條目
+						// 處理並規範化每個條目，使用 timeUtils 進行時間處理
 						hoursData = hoursData.map(entry => {
 							// 確保 day_of_week 是數字
 							const dayOfWeek = typeof entry.day_of_week === 'string'
@@ -135,16 +147,20 @@ export class Neo4jSetBusinessHours implements INodeType {
 								throw new NodeOperationError(node, `Invalid day_of_week (${entry.day_of_week}). Must be between 1 (Monday) and 7 (Sunday).`, { itemIndex: i });
 							}
 
+							// 使用時間處理工具規範化時間格式
+							const startTime = normalizeTimeOnly(entry.start_time);
+							const endTime = normalizeTimeOnly(entry.end_time);
+
 							// 確保時間格式正確
-							if (typeof entry.start_time !== 'string' || typeof entry.end_time !== 'string') {
+							if (!startTime || !endTime) {
 								throw new NodeOperationError(node, `Missing or invalid time format in entry: ${JSON.stringify(entry)}`, { itemIndex: i });
 							}
 
 							// 返回規範化的條目
 							return {
 								day_of_week: dayOfWeek,
-								start_time: entry.start_time,
-								end_time: entry.end_time
+								start_time: startTime,
+								end_time: endTime
 							};
 						});
 
@@ -176,15 +192,15 @@ export class Neo4jSetBusinessHours implements INodeType {
 					// 只有當有營業時間資料時才創建新記錄
 					let hoursSetCount = 0;
 					if (hoursData.length > 0) {
-						// 創建新的營業時間
+						// 創建新的營業時間，使用 toNeo4jTimeString 格式化時間
 						const createQuery = `
 							MATCH (b:Business {business_id: $businessId})
 							UNWIND $hoursData AS dayHours
 							CREATE (bh:BusinessHours {
 								business_id: $businessId,
 								day_of_week: dayHours.day_of_week,
-								start_time: time(dayHours.start_time),
-								end_time: time(dayHours.end_time),
+								start_time: time($startTime),
+								end_time: time($endTime),
 								created_at: datetime()
 							})
 							MERGE (b)-[:HAS_HOURS]->(bh)
@@ -192,12 +208,22 @@ export class Neo4jSetBusinessHours implements INodeType {
 						`;
 
 						this.logger.debug(`Executing create query for businessId: ${businessId} with ${hoursData.length} entries.`);
-						const createResult = await session.run(createQuery, {
-							businessId,
-							hoursData // 傳遞規範化後的資料
-						});
 
-						hoursSetCount = createResult.records[0].get('createdCount').toNumber();
+						// 處理每個營業時間條目
+						for (const hourData of hoursData) {
+							const startTime = toNeo4jTimeString(hourData.start_time);
+							const endTime = toNeo4jTimeString(hourData.end_time);
+
+							const createResult = await session.run(createQuery, {
+								businessId,
+								hoursData: [hourData],
+								startTime,
+								endTime
+							});
+
+							hoursSetCount += createResult.records[0].get('createdCount').toNumber();
+						}
+
 						this.logger.debug(`Created ${hoursSetCount} new business hours`);
 					} else {
 						this.logger.debug(`Skipping create query for businessId: ${businessId} as hoursData is empty.`);

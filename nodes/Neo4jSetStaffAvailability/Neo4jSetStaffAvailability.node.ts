@@ -18,6 +18,18 @@ import {
 	parseNeo4jError,
 } from '../neo4j/helpers/utils';
 
+// --- 引入時間處理工具函數 ---
+import {
+	toNeo4jTimeString,
+	normalizeTimeOnly,
+
+	// 以下保留供未來擴展使用
+	normalizeDateTime as _normalizeDateTime,
+	toNeo4jDateTimeString as _toNeo4jDateTimeString,
+	addMinutesToDateTime as _addMinutesToDateTime,
+	TIME_SETTINGS as _TIME_SETTINGS,
+} from '../neo4j/helpers/timeUtils';
+
 // --- Node Class Definition ---
 export class Neo4jSetStaffAvailability implements INodeType {
 
@@ -113,15 +125,15 @@ export class Neo4jSetStaffAvailability implements INodeType {
 					// 5. Get Input Parameters
 					const staffId = this.getNodeParameter('staffId', i, '') as string;
 					const dayOfWeekString = this.getNodeParameter('dayOfWeek', i, '1') as string; // 獲取為字串
-					const startTime = this.getNodeParameter('startTime', i, '09:00') as string;
-					const endTime = this.getNodeParameter('endTime', i, '17:00') as string;
+					const rawStartTime = this.getNodeParameter('startTime', i, '09:00') as string;
+					const rawEndTime = this.getNodeParameter('endTime', i, '17:00') as string;
 
 					// 詳細記錄接收到的參數
 					console.log('Setting staff availability with parameters:');
 					console.log('- staffId:', staffId);
 					console.log('- dayOfWeek (raw):', dayOfWeekString);
-					console.log('- startTime:', startTime);
-					console.log('- endTime:', endTime);
+					console.log('- startTime (raw):', rawStartTime);
+					console.log('- endTime (raw):', rawEndTime);
 
 					// 將 dayOfWeek 字串轉換為數字
 					const dayOfWeek = parseInt(dayOfWeekString, 10);
@@ -129,12 +141,23 @@ export class Neo4jSetStaffAvailability implements INodeType {
 						throw new NodeOperationError(node, `Invalid Day of Week value: ${dayOfWeekString}. Must be a number between 0 and 6 (0 = Sunday, 6 = Saturday).`, { itemIndex: i });
 					}
 
-					console.log('- dayOfWeek (parsed):', dayOfWeek);
+					// 使用時間處理工具規範化時間格式
+					const startTime = normalizeTimeOnly(rawStartTime);
+					const endTime = normalizeTimeOnly(rawEndTime);
 
-					// 基本時間格式驗證
-					if (!/^[0-2][0-9]:[0-5][0-9]$/.test(startTime) || !/^[0-2][0-9]:[0-5][0-9]$/.test(endTime)) {
+					// 轉換為 Neo4j 時間格式
+					const neoStartTime = toNeo4jTimeString(startTime);
+					const neoEndTime = toNeo4jTimeString(endTime);
+
+					if (!startTime || !endTime || !neoStartTime || !neoEndTime) {
 						throw new NodeOperationError(node, 'Invalid Start or End Time format. Please use HH:MM.', { itemIndex: i });
 					}
+
+					console.log('- dayOfWeek (parsed):', dayOfWeek);
+					console.log('- startTime (normalized):', startTime);
+					console.log('- endTime (normalized):', endTime);
+					console.log('- neoStartTime:', neoStartTime);
+					console.log('- neoEndTime:', neoEndTime);
 
 					// 6. 分開查詢和更新以避免混合操作的問題
 
@@ -169,7 +192,7 @@ export class Neo4jSetStaffAvailability implements INodeType {
 					const deleteResults = await runCypherQuery.call(this, session, deleteQuery, deleteParams, true, i);
 					console.log(`Deleted ${deleteResults[0]?.json?.deletedCount || 0} existing availability records`);
 
-					// 6c. 創建新的可用性記錄
+					// 6c. 創建新的可用性記錄，使用規範化的時間格式
 					const createQuery = `
 						MATCH (st:Staff {staff_id: $staffId})
 						CREATE (st)-[:HAS_AVAILABILITY]->(sa:StaffAvailability {
@@ -189,8 +212,8 @@ export class Neo4jSetStaffAvailability implements INodeType {
 					const createParams: IDataObject = {
 						staffId,
 						dayOfWeek: neo4j.int(dayOfWeek),
-						startTime,
-						endTime,
+						startTime: neoStartTime,
+						endTime: neoEndTime,
 					};
 
 					const createResults = await runCypherQuery.call(this, session, createQuery, createParams, true, i);

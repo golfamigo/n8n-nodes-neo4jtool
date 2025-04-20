@@ -18,6 +18,18 @@ import {
 	parseNeo4jError,
 } from '../neo4j/helpers/utils'; // Adjusted path relative to new location
 
+// --- 引入時間處理工具函數 ---
+import {
+	toNeo4jDateTimeString,
+
+	// 其他時間處理函數
+	normalizeDateTime as _normalizeDateTime,
+	normalizeTimeOnly as _normalizeTimeOnly,
+	toNeo4jTimeString as _toNeo4jTimeString,
+	addMinutesToDateTime as _addMinutesToDateTime,
+	TIME_SETTINGS as _TIME_SETTINGS
+} from '../neo4j/helpers/timeUtils';
+
 // --- Node Class Definition ---
 export class Neo4jUpdateBooking implements INodeType {
 
@@ -131,18 +143,36 @@ export class Neo4jUpdateBooking implements INodeType {
 				try {
 					// 5. Get Input Parameters
 					const bookingId = this.getNodeParameter('bookingId', i, '') as string;
-					const bookingTime = this.getNodeParameter('bookingTime', i, '') as string;
+					const rawBookingTime = this.getNodeParameter('bookingTime', i, '') as string;
 					const status = this.getNodeParameter('status', i, '') as string;
 					const staffId = this.getNodeParameter('staffId', i, '') as string;
 					const notes = this.getNodeParameter('notes', i, '') as string;
+
+					// 處理並規範化預約時間 (如果有提供)
+					let bookingTime: string | null = null;
+					if (rawBookingTime !== undefined && rawBookingTime !== '') {
+						bookingTime = toNeo4jDateTimeString(rawBookingTime);
+						if (!bookingTime) {
+							throw new NodeOperationError(node, `Invalid booking time format: ${rawBookingTime}. Please provide a valid ISO 8601 datetime.`, { itemIndex: i });
+						}
+					}
 
 					// Build SET clause dynamically
 					const setClauses: string[] = [];
 					const parameters: IDataObject = { bookingId };
 
-					if (bookingTime !== undefined && bookingTime !== '') { setClauses.push('bk.booking_time = datetime($bookingTime)'); parameters.bookingTime = bookingTime; }
-					if (status !== undefined && status !== '') { setClauses.push('bk.status = $status'); parameters.status = status; }
-					if (notes !== undefined && notes !== '') { setClauses.push('bk.notes = $notes'); parameters.notes = notes; }
+					if (bookingTime !== null) {
+						setClauses.push('bk.booking_time = datetime($bookingTime)');
+						parameters.bookingTime = bookingTime;
+					}
+					if (status !== undefined && status !== '') {
+						setClauses.push('bk.status = $status');
+						parameters.status = status;
+					}
+					if (notes !== undefined && notes !== '') {
+						setClauses.push('bk.notes = $notes');
+						parameters.notes = notes;
+					}
 
 					// Start building the query
 					let query = `MATCH (bk:Booking {booking_id: $bookingId})\n`;
@@ -169,7 +199,6 @@ export class Neo4jUpdateBooking implements INodeType {
 							query += `WITH bk\n`;
 						}
 					}
-
 
 					// Add RETURN clause
 					query += `RETURN bk {.*} AS booking`;
