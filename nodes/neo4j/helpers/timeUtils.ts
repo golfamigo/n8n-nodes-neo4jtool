@@ -45,18 +45,21 @@ export function normalizeDateTime(timeInput: any, timezone: string = TIME_SETTIN
 
   try {
     // 處理 Neo4j DateTime 類型
-		if (neo4j.isDateTime(timeInput)) {
-			// 使用 convertNeo4jValueToJs 轉換 Neo4j Integer 到 JavaScript number
-			return DateTime.fromObject({
-				year: convertNeo4jValueToJs(timeInput.year),
-				month: convertNeo4jValueToJs(timeInput.month),
-				day: convertNeo4jValueToJs(timeInput.day),
-				hour: convertNeo4jValueToJs(timeInput.hour),
-				minute: convertNeo4jValueToJs(timeInput.minute),
-				second: convertNeo4jValueToJs(timeInput.second),
-				millisecond: convertNeo4jValueToJs(timeInput.nanosecond) / 1000000
-			}, { zone: 'UTC' }).toUTC().toISO();
-		}
+    if (neo4j.isDateTime(timeInput)) {
+      // 轉換為標準 ISO 字符串，並確保在 UTC
+      const dt = DateTime.fromObject({
+        year: convertNeo4jValueToJs(timeInput.year),
+        month: convertNeo4jValueToJs(timeInput.month),
+        day: convertNeo4jValueToJs(timeInput.day),
+        hour: convertNeo4jValueToJs(timeInput.hour),
+        minute: convertNeo4jValueToJs(timeInput.minute),
+        second: convertNeo4jValueToJs(timeInput.second),
+        millisecond: convertNeo4jValueToJs(timeInput.nanosecond) / 1000000
+      }, { zone: 'UTC' });
+
+      // 確保返回完整 ISO 格式以兼容 Neo4j datetime()
+      return dt.toUTC().toISO({ suppressMilliseconds: false });
+    }
 
     // 處理 Neo4j Date 類型
 		if (neo4j.isDate(timeInput)) {
@@ -140,6 +143,24 @@ export function toNeo4jDateTimeString(timeInput: any): string | null {
   const iso = normalizeDateTime(timeInput);
   if (iso === null) return null;
   return iso;
+}
+
+// 將日期時間轉換為 Neo4j 可接受的字符串格式
+export function toNeo4jDateTime(dateTime: any): string | null {
+  const normalized = normalizeDateTime(dateTime);
+  if (!normalized) return null;
+
+  // 確保格式與 Neo4j datetime() 函數兼容
+  return normalized.replace('Z', '');
+}
+
+// 獲取 ISO 星期幾 (1-7, 週一至週日)
+export function getIsoWeekday(date: any): number | null {
+  const normalized = normalizeDateTime(date);
+  if (!normalized) return null;
+
+  // Luxon 使用 ISO 週日格式 (1=週一, 7=週日)
+  return DateTime.fromISO(normalized).weekday;
 }
 
 /**
