@@ -1,5 +1,5 @@
 // ============================================================================
-// N8N Neo4j Node: Find Available Slots - TimeOnly Mode
+// N8N Neo4j Node: Find Available Slots - StaffOnly Mode
 // ============================================================================
 import type {
 	IExecuteFunctions,
@@ -28,19 +28,19 @@ import {
 } from '../neo4j/helpers/timeUtils';
 
 // --- Node Class Definition ---
-export class Neo4jFindAvailableSlotsTimeOnly implements INodeType {
+export class Neo4jFindAvailableSlotsStaffOnly implements INodeType {
 
 	// --- Node Description for n8n UI ---
 	description: INodeTypeDescription = {
-		displayName: 'Neo4j Find Available Slots TimeOnly',
-		name: 'neo4jFindAvailableSlotsTimeOnly',
+		displayName: 'Neo4j Find Available Slots StaffOnly',
+		name: 'neo4jFindAvailableSlotsStaffOnly',
 		icon: 'file:../neo4j/neo4j.svg',
 		group: ['database'],
 		version: 1,
-		subtitle: 'TimeOnly mode for Business {{$parameter["businessId"]}}',
-		description: '根據時間查找可用的預約時間段 (僅考慮時間衝突)',
+		subtitle: 'StaffOnly mode for Business {{$parameter["businessId"]}}',
+		description: '根據時間和員工可用性查找可用的預約時間段',
 		defaults: {
-			name: 'Neo4j Find Slots TimeOnly',
+			name: 'Neo4j Find Slots StaffOnly',
 		},
 		inputs: ['main'],
 		outputs: ['main'],
@@ -88,6 +88,14 @@ export class Neo4jFindAvailableSlotsTimeOnly implements INodeType {
 				default: 15,
 				description: '生成潛在預約時段的時間間隔（分鐘）',
 			},
+			{
+				displayName: 'Required Staff ID',
+				name: 'requiredStaffId',
+				type: 'string',
+				required: true,
+				default: '',
+				description: '指定員工的 ID（在 StaffOnly 模式下必填）',
+			},
 		],
 	};
 
@@ -107,14 +115,21 @@ export class Neo4jFindAvailableSlotsTimeOnly implements INodeType {
 			const startDateTimeStr = this.getNodeParameter('startDateTime', itemIndex, '') as string;
 			const endDateTimeStr = this.getNodeParameter('endDateTime', itemIndex, '') as string;
 			const intervalMinutes = this.getNodeParameter('intervalMinutes', itemIndex, 15) as number;
+			const requiredStaffId = this.getNodeParameter('requiredStaffId', itemIndex, '') as string;
+
+			// 驗證必填參數
+			if (!requiredStaffId) {
+				throw new NodeOperationError(node, 'StaffOnly 模式下必須指定 Required Staff ID。', { itemIndex });
+			}
 
 			// 記錄接收到的參數
-			this.logger.debug('執行 FindAvailableSlotsTimeOnly，參數:', {
+			this.logger.debug('執行 FindAvailableSlotsStaffOnly，參數:', {
 				businessId,
 				serviceId,
 				startDateTime: startDateTimeStr,
 				endDateTime: endDateTimeStr,
 				intervalMinutes,
+				requiredStaffId,
 			});
 
 			// 2. 驗證認證和日期
@@ -160,32 +175,42 @@ export class Neo4jFindAvailableSlotsTimeOnly implements INodeType {
 			// 4. 查詢商家信息、服務時長和營業時間
 			const preQuery = `
 				MATCH (b:Business {business_id: $businessId})
-				WHERE b.booking_mode = 'TimeOnly'
+				WHERE b.booking_mode = 'StaffOnly'
 				OPTIONAL MATCH (b)-[:HAS_HOURS]->(bh:BusinessHours)
 				WITH b, collect(bh {
 					day_of_week: bh.day_of_week,
 					start_time: toString(bh.start_time),
 					end_time: toString(bh.end_time)
 				}) AS hoursList
+
+				// 獲取服務信息
 				MATCH (s:Service {service_id: $serviceId})<-[:OFFERS]-(b)
+
+				// 確認指定員工存在並能提供該服務
+				MATCH (b)-[:EMPLOYS]->(st:Staff {staff_id: $requiredStaffId})
+				MATCH (st)-[:CAN_PROVIDE]->(s)
+
 				RETURN s.duration_minutes AS durationMinutes,
-				       hoursList
+				       hoursList,
+				       st.name AS staffName
 			`;
-			const preQueryParams = { businessId, serviceId };
+			const preQueryParams = { businessId, serviceId, requiredStaffId };
 			let durationMinutes: number | null = null;
 			let businessHours: any[] = [];
+			let staffName: string | null = null;
 
 			try {
-				this.logger.debug('執行預查詢獲取商家信息和營業時間', { businessId, serviceId });
+				this.logger.debug('執行預查詢獲取商家、服務和員工信息', { businessId, serviceId, requiredStaffId });
 				const preResult = await session.run(preQuery, preQueryParams);
 
 				if (preResult.records.length === 0) {
-					throw new NodeOperationError(node, `找不到 TimeOnly 模式的商家 '${businessId}' 或服務 '${serviceId}'，或兩者沒有關聯。`, { itemIndex });
+					throw new NodeOperationError(node, `找不到 StaffOnly 模式的商家 '${businessId}'，或服務 '${serviceId}'，或指定員工 '${requiredStaffId}' 無法提供該服務。`, { itemIndex });
 				}
 
 				const record = preResult.records[0];
 				durationMinutes = convertNeo4jValueToJs(record.get('durationMinutes'));
 				businessHours = convertNeo4jValueToJs(record.get('hoursList'));
+				staffName = convertNeo4jValueToJs(record.get('staffName'));
 
 				if (durationMinutes === null) {
 					throw new NodeOperationError(node, `無法獲取服務 ID: ${serviceId} 的時長`, { itemIndex });
@@ -193,11 +218,12 @@ export class Neo4jFindAvailableSlotsTimeOnly implements INodeType {
 
 				this.logger.debug('獲取到的商家信息:', {
 					durationMinutes,
-					businessHoursCount: Array.isArray(businessHours) ? businessHours.length : 'not an array'
+					businessHoursCount: Array.isArray(businessHours) ? businessHours.length : 'not an array',
+					staffName,
 				});
 
 			} catch (preQueryError) {
-				throw parseNeo4jError(node, preQueryError, '獲取商家/服務信息失敗。');
+				throw parseNeo4jError(node, preQueryError, '獲取商家/服務/員工信息失敗。');
 			}
 
 			// 5. 使用時間工具函數生成潛在時段
@@ -220,7 +246,8 @@ export class Neo4jFindAvailableSlotsTimeOnly implements INodeType {
 						totalPotentialSlots: 0,
 						filteredOutSlots: 0,
 						message: "未找到潛在時段 - 請檢查營業時間和日期範圍",
-						mode: "TimeOnly"
+						mode: "StaffOnly",
+						staffName: staffName || "未知員工"
 					},
 					pairedItem: { item: itemIndex },
 				});
@@ -228,8 +255,8 @@ export class Neo4jFindAvailableSlotsTimeOnly implements INodeType {
 				return this.prepareOutputData(returnData);
 			}
 
-			// 6. 優化的 TimeOnly 查詢 - 僅檢查營業時間和預約衝突
-			const timeOnlyQuery = `
+			// 6. StaffOnly 查詢 - 檢查營業時間、員工可用性和預約衝突
+			const staffOnlyQuery = `
 				// 輸入：潛在時段開始時間列表 (ISO 字符串)
 				UNWIND $potentialSlots AS slotStr
 				WITH datetime(slotStr) AS slotStart
@@ -240,43 +267,67 @@ export class Neo4jFindAvailableSlotsTimeOnly implements INodeType {
 				WITH b, s, slotStart, duration({minutes: s.duration_minutes}) AS serviceDuration
 				WITH b, s, slotStart, serviceDuration, slotStart + serviceDuration AS slotEnd
 
-				// 檢查商家營業時間 - 使用明確的轉換確保格式一致
-				// 我們知道這些營業時間已經通過生成潛在時段時篩選，這裡是額外檢查
+				// 檢查商家營業時間
 				MATCH (b)-[:HAS_HOURS]->(bh:BusinessHours)
 				WHERE bh.day_of_week = date(slotStart).dayOfWeek
 					AND time(bh.start_time) <= time(slotStart)
 					AND time(bh.end_time) >= time(slotEnd)
 
-				WITH b, slotStart, slotEnd, serviceDuration
+				WITH b, s, slotStart, slotEnd, serviceDuration
 
-				// 檢查是否有衝突預約 - 僅檢查時間衝突，不考慮資源或員工
-				WHERE NOT EXISTS {
-					MATCH (bk:Booking)-[:AT_BUSINESS]->(b)
-					WHERE bk.booking_time < slotEnd AND
-						bk.booking_time + duration({minutes: $durationMinutes}) > slotStart
+				// 檢查指定員工的可用性
+				MATCH (b)-[:EMPLOYS]->(st:Staff {staff_id: $requiredStaffId})
+				WHERE EXISTS {
+					MATCH (st)-[:CAN_PROVIDE]->(s)
+				}
+				AND EXISTS {
+					MATCH (st)-[:HAS_AVAILABILITY]->(sa:StaffAvailability)
+					WHERE sa.day_of_week = date(slotStart).dayOfWeek
+						AND time(sa.start_time) <= time(slotStart)
+						AND time(sa.end_time) >= time(slotEnd)
 				}
 
-				RETURN toString(slotStart) AS availableSlot
+				// 檢查員工是否有其他預約衝突
+				AND NOT EXISTS {
+					MATCH (bk:Booking)-[:SERVED_BY]->(st)
+					WHERE bk.booking_time < slotEnd
+						AND bk.booking_time + duration({minutes: $durationMinutes}) > slotStart
+				}
+
+				// 檢查商家是否有其他預約衝突
+				WITH b, st, slotStart, slotEnd, serviceDuration
+				WHERE NOT EXISTS {
+					MATCH (bk:Booking)-[:AT_BUSINESS]->(b)
+					WHERE bk.booking_time < slotEnd
+						AND bk.booking_time + duration({minutes: $durationMinutes}) > slotStart
+						AND NOT EXISTS { MATCH (bk)-[:SERVED_BY]->(st) } // 排除已檢查過的員工預約
+				}
+
+				RETURN toString(slotStart) AS availableSlot,
+				       st.name AS staffName
 				ORDER BY availableSlot
 			`;
 
-			const timeOnlyParams: IDataObject = {
+			const staffOnlyParams: IDataObject = {
 				businessId,
 				serviceId,
 				potentialSlots,
+				requiredStaffId,
 				durationMinutes: neo4j.int(durationMinutes)
 			};
 
 			try {
-				// 7. 執行 TimeOnly 查詢
-				this.logger.debug('執行時間模式可用時段查詢', {
+				// 7. 執行 StaffOnly 查詢
+				this.logger.debug('執行員工模式可用時段查詢', {
 					potentialSlotsCount: potentialSlots.length,
 					firstSlot: potentialSlots.length > 0 ? potentialSlots[0] : null,
-					lastSlot: potentialSlots.length > 0 ? potentialSlots[potentialSlots.length - 1] : null
+					lastSlot: potentialSlots.length > 0 ? potentialSlots[potentialSlots.length - 1] : null,
+					staffName: staffName
 				});
 
-				const mainResult = await session.run(timeOnlyQuery, timeOnlyParams);
+				const mainResult = await session.run(staffOnlyQuery, staffOnlyParams);
 				const availableSlots = mainResult.records.map(record => record.get('availableSlot'));
+				const staffNameResult = mainResult.records.length > 0 ? mainResult.records[0].get('staffName') : staffName;
 
 				this.logger.debug(`找到 ${availableSlots.length} 個可用時段，從 ${potentialSlots.length} 個潛在時段中篩選`);
 
@@ -286,7 +337,9 @@ export class Neo4jFindAvailableSlotsTimeOnly implements INodeType {
 						availableSlots,
 						totalPotentialSlots: potentialSlots.length,
 						filteredOutSlots: potentialSlots.length - availableSlots.length,
-						mode: "TimeOnly"
+						mode: "StaffOnly",
+						staffName: staffNameResult || staffName || "未知員工",
+						staffId: requiredStaffId
 					},
 					pairedItem: { item: itemIndex },
 				});
