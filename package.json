@@ -1,6 +1,6 @@
 {
   "name": "n8n-nodes-neo4jtool",
-  "version": "0.1.87",
+  "version": "0.1.91",
   "description": "a Neo4j node for n8n workflows",
   "keywords": [
     "n8n-community-node-package",
