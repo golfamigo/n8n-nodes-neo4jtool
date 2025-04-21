@@ -9,7 +9,7 @@ import type {
 	INodeTypeDescription,
 	ICredentialDataDecryptedObject,
 } from 'n8n-workflow';
-import { NodeOperationError } from 'n8n-workflow';
+import { NodeOperationError, jsonParse } from 'n8n-workflow';
 import neo4j, { Driver, Session, auth } from 'neo4j-driver';
 
 // --- IMPORTANT: Shared Utilities ---
@@ -41,7 +41,7 @@ export class Neo4jSetStaffAvailability implements INodeType {
 		group: ['database'],
 		version: 1,
 		subtitle: 'for Staff {{$parameter["staffId"]}}',
-		description: '設定或更新指定員工在特定星期幾的可用起訖時間。',
+		description: '設定或更新指定員工的可用時間。',
 		defaults: {
 			name: 'Neo4j Set Staff Availability',
 		},
@@ -60,30 +60,16 @@ export class Neo4jSetStaffAvailability implements INodeType {
 				description: '目標員工的 staff_id',
 			},
 			{
-				displayName: 'Day of Week',
-				name: 'dayOfWeek',
-				type: 'string', // 保持為 string 類型以確保 MCP 兼容性
-				required: true,
-				default: '1',
-				description: '星期幾 (0-6, 0 是星期日, 1 是星期一)', // 更新為 0-6 數字系統
-			},
-			{
-				displayName: 'Start Time',
-				name: 'startTime',
+				displayName: 'Availability Data',
+				name: 'availabilityData',
 				type: 'string',
 				required: true,
-				default: '09:00',
-				placeholder: 'HH:MM',
-				description: '開始時間 (HH:MM 格式)',
-			},
-			{
-				displayName: 'End Time',
-				name: 'endTime',
-				type: 'string',
-				required: true,
-				default: '17:00',
-				placeholder: 'HH:MM',
-				description: '結束時間 (HH:MM 格式)',
+				default: '[\n  {\n    "day_of_week": 1,\n    "start_time": "09:00",\n    "end_time": "17:00"\n  }\n]',
+				description: '包含員工可用時間的 JSON 陣列。格式必須是 day_of_week, start_time, end_time。',
+			hint: '格式: [{"day_of_week": 1, "start_time": "09:00", "end_time": "17:00"}, ...] (1=週一, 7=週日，時間為 HH:MM 格式)',
+				typeOptions: {
+					rows: 10,
+				}
 			},
 		],
 	};
@@ -124,107 +110,181 @@ export class Neo4jSetStaffAvailability implements INodeType {
 				try {
 					// 5. Get Input Parameters
 					const staffId = this.getNodeParameter('staffId', i, '') as string;
-					const dayOfWeekString = this.getNodeParameter('dayOfWeek', i, '1') as string; // 獲取為字串
-					const rawStartTime = this.getNodeParameter('startTime', i, '09:00') as string;
-					const rawEndTime = this.getNodeParameter('endTime', i, '17:00') as string;
+					const availabilityDataRaw = this.getNodeParameter('availabilityData', i, '[]') as string;
 
-					// 詳細記錄接收到的參數
-					console.log('Setting staff availability with parameters:');
-					console.log('- staffId:', staffId);
-					console.log('- dayOfWeek (raw):', dayOfWeekString);
-					console.log('- startTime (raw):', rawStartTime);
-					console.log('- endTime (raw):', rawEndTime);
+					this.logger.debug('Raw availability data input:', { data: availabilityDataRaw });
 
-					// 將 dayOfWeek 字串轉換為數字
-					const dayOfWeek = parseInt(dayOfWeekString, 10);
-					if (isNaN(dayOfWeek) || dayOfWeek < 0 || dayOfWeek > 6) {
-						throw new NodeOperationError(node, `Invalid Day of Week value: ${dayOfWeekString}. Must be a number between 0 and 6 (0 = Sunday, 6 = Saturday).`, { itemIndex: i });
+					// Parse and validate availabilityData
+					let availabilityData: any[];
+					try {
+						// 處理可能的字符串包裹（如果 MCP 傳送了帶引號的字符串）
+						let jsonToParse = availabilityDataRaw;
+						if (availabilityDataRaw.startsWith('"') && availabilityDataRaw.endsWith('"')) {
+							// 移除外層引號並處理轉義
+							jsonToParse = JSON.parse(availabilityDataRaw);
+						}
+
+						availabilityData = jsonParse(jsonToParse);
+
+						if (!Array.isArray(availabilityData)) {
+							throw new NodeOperationError(node, 'Availability Data must be a valid JSON array.', {
+                itemIndex: i,
+                description: `提供的格式不是有效的 JSON 陣列。應為: [{"day_of_week": 1, "start_time": "09:00", "end_time": "17:00"}]。收到的值: ${availabilityDataRaw}`
+              } as IDataObject);
+						}
+
+						this.logger.debug('Parsed availability data:', { data: JSON.stringify(availabilityData, null, 2) });
+
+						// 處理並規範化每個條目，使用 timeUtils 進行時間處理
+						availabilityData = availabilityData.map(entry => {
+							// 同時接受蛇形命名法和駝峰命名法
+							const dayOfWeekValue = entry.day_of_week !== undefined ? entry.day_of_week : entry.dayOfWeek;
+							const dayOfWeek = typeof dayOfWeekValue === 'string'
+								? parseInt(dayOfWeekValue, 10)
+								: (dayOfWeekValue || 0);
+
+							// 如果 day_of_week 範圍不對，報錯
+							// 如果 day_of_week 範圍不對，報錯
+						if (isNaN(dayOfWeek) || dayOfWeek < 1 || dayOfWeek > 7) {
+							throw new NodeOperationError(node, `無效的星期值。必須是 1-7 之間的整數 (1=星期一, 7=星期日)。收到的值: day_of_week=${dayOfWeekValue}`, { itemIndex: i } as IDataObject);
+						}
+
+							// 支援不同的時間格式和命名風格
+							const startTimeValue = entry.start_time !== undefined ? entry.start_time : entry.startTime;
+							const endTimeValue = entry.end_time !== undefined ? entry.end_time : entry.endTime;
+
+							// 使用時間處理工具規範化時間格式
+							const startTime = normalizeTimeOnly(startTimeValue);
+							const endTime = normalizeTimeOnly(endTimeValue);
+
+							// 確保時間格式正確
+							if (!startTime || !endTime) {
+								throw new NodeOperationError(node, `無效的時間格式。請使用 "HH:MM" 格式。收到的值: start_time="${startTimeValue}", end_time="${endTimeValue}"`, { itemIndex: i } as IDataObject);
+							}
+
+							// 返回規範化的條目
+							return {
+								day_of_week: dayOfWeek,
+								start_time: startTime,
+								end_time: endTime
+							};
+						});
+
+						this.logger.debug('Normalized availability data:', { data: JSON.stringify(availabilityData, null, 2) });
+
+					} catch (jsonError) {
+						console.error('JSON parsing error:', jsonError);
+						throw new NodeOperationError(node, `無效的 JSON 格式: ${(jsonError as Error).message}`, {
+              itemIndex: i,
+              description: `預期的格式為: [{"day_of_week": 0, "start_time": "09:00", "end_time": "17:00"}]。`
+            } as IDataObject);
 					}
 
-					// 使用時間處理工具規範化時間格式
-					const startTime = normalizeTimeOnly(rawStartTime);
-					const endTime = normalizeTimeOnly(rawEndTime);
-
-					// 轉換為 Neo4j 時間格式
-					const neoStartTime = toNeo4jTimeString(startTime);
-					const neoEndTime = toNeo4jTimeString(endTime);
-
-					if (!startTime || !endTime || !neoStartTime || !neoEndTime) {
-						throw new NodeOperationError(node, 'Invalid Start or End Time format. Please use HH:MM.', { itemIndex: i });
+					// 6. 執行 - 檢查員工是否存在
+					if (!session) {
+						throw new NodeOperationError(node, 'Neo4j session is not available.', { itemIndex: i });
 					}
 
-					console.log('- dayOfWeek (parsed):', dayOfWeek);
-					console.log('- startTime (normalized):', startTime);
-					console.log('- endTime (normalized):', endTime);
-					console.log('- neoStartTime:', neoStartTime);
-					console.log('- neoEndTime:', neoEndTime);
-
-					// 6. 分開查詢和更新以避免混合操作的問題
-
-					// 6a. 先檢查員工和星期是否存在
+					// 檢查員工是否存在
 					const checkQuery = `
 						MATCH (st:Staff {staff_id: $staffId})
 						RETURN st
 					`;
 					const checkParams: IDataObject = { staffId };
 
-					if (!session) {
-						throw new NodeOperationError(node, 'Neo4j session is not available.', { itemIndex: i });
-					}
-
 					const checkResults = await runCypherQuery.call(this, session, checkQuery, checkParams, false, i);
 					if (checkResults.length === 0) {
-						throw new NodeOperationError(node, `Staff with ID ${staffId} not found`, { itemIndex: i });
+						throw new NodeOperationError(node, `員工 ID ${staffId} 不存在`, { itemIndex: i });
 					}
 
-					// 6b. 刪除現有可用性關係
-					const deleteQuery = `
-						MATCH (st:Staff {staff_id: $staffId})-[r:HAS_AVAILABILITY]->(sa:StaffAvailability)
-						WHERE sa.day_of_week = $dayOfWeek
-						DELETE r, sa
-						RETURN count(r) as deletedCount
-					`;
-					const deleteParams: IDataObject = {
-						staffId,
-						dayOfWeek: neo4j.int(dayOfWeek),
-					};
+					let totalDeletedCount = 0;
+					let totalCreatedCount = 0;
 
-					const deleteResults = await runCypherQuery.call(this, session, deleteQuery, deleteParams, true, i);
-					console.log(`Deleted ${deleteResults[0]?.json?.deletedCount || 0} existing availability records`);
+					// 處理每個可用時間
+					this.logger.debug(`總共收到 ${availabilityData.length} 個時間段需要處理`, { data: availabilityData.length });
+					let processedCount = 0;
 
-					// 6c. 創建新的可用性記錄，使用規範化的時間格式
-					const createQuery = `
-						MATCH (st:Staff {staff_id: $staffId})
-						CREATE (st)-[:HAS_AVAILABILITY]->(sa:StaffAvailability {
-							staff_id: $staffId,
-							day_of_week: $dayOfWeek,
-							start_time: time($startTime),
-							end_time: time($endTime),
-							created_at: datetime()
-						})
-						RETURN sa {
-							.staff_id,
-							day_of_week: toInteger(sa.day_of_week),
-							start_time: toString(sa.start_time),
-							end_time: toString(sa.end_time)
-						} AS availability
-					`;
-					const createParams: IDataObject = {
-						staffId,
-						dayOfWeek: neo4j.int(dayOfWeek),
-						startTime: neoStartTime,
-						endTime: neoEndTime,
-					};
+					for (const availabilityItem of availabilityData) {
+						// 刪除現有的可用性關係
+						const deleteQuery = `
+							MATCH (st:Staff {staff_id: $staffId})-[r:HAS_AVAILABILITY]->(sa:StaffAvailability)
+							WHERE sa.day_of_week = $dayOfWeek
+							DELETE r, sa
+							RETURN count(r) as deletedCount
+						`;
+						const deleteParams: IDataObject = {
+							staffId,
+							dayOfWeek: neo4j.int(availabilityItem.day_of_week),
+						};
 
-					const createResults = await runCypherQuery.call(this, session, createQuery, createParams, true, i);
-					returnData.push(...createResults);
+						const deleteResults = await runCypherQuery.call(this, session, deleteQuery, deleteParams, true, i);
+						const deletedCount = deleteResults[0]?.json?.deletedCount || 0;
+						totalDeletedCount += (typeof deletedCount === 'number' ? deletedCount : 0);
+						this.logger.debug(`Deleted ${deletedCount} existing availability records for day ${availabilityItem.day_of_week}`);
+
+						// 創建新的可用性記錄
+						const createQuery = `
+							MATCH (st:Staff {staff_id: $staffId})
+							CREATE (st)-[:HAS_AVAILABILITY]->(sa:StaffAvailability {
+								staff_id: $staffId,
+								day_of_week: $dayOfWeek,
+								start_time: time($startTime),
+								end_time: time($endTime),
+								created_at: datetime()
+							})
+							RETURN sa {
+								.staff_id,
+								day_of_week: toInteger(sa.day_of_week),
+								start_time: toString(sa.start_time),
+								end_time: toString(sa.end_time)
+							} AS availability
+						`;
+
+						const startTime = toNeo4jTimeString(availabilityItem.start_time);
+						const endTime = toNeo4jTimeString(availabilityItem.end_time);
+
+						const createParams: IDataObject = {
+							staffId,
+							dayOfWeek: neo4j.int(availabilityItem.day_of_week),
+							startTime,
+							endTime,
+						};
+
+						const createResults = await runCypherQuery.call(this, session, createQuery, createParams, true, i);
+						totalCreatedCount += createResults.length;
+						this.logger.debug(`Created availability record for day ${availabilityItem.day_of_week}`);
+					}
+
+					this.logger.debug(`成功處理了 ${processedCount} 個時間段`, { count: processedCount });
+
+					// 返回結果摘要
+					returnData.push({
+						json: {
+							success: true,
+							staffId: staffId,
+							deletedCount: totalDeletedCount,
+							availabilitySetCount: totalCreatedCount,
+							processedDays: availabilityData.length
+						},
+						pairedItem: { item: i }
+					});
 
 				} catch (itemError) {
 					// 8. Handle Item-Level Errors
 					if (this.continueOnFail(itemError)) {
 						const item = items[i];
 						const parsedError = parseNeo4jError(node, itemError);
-						const errorData = { ...item.json, error: parsedError };
+						const errorData = {
+              ...item.json,
+              error: {
+                ...parsedError,
+                expectedFormat: {
+                  example: '[{"day_of_week": 0, "start_time": "09:00", "end_time": "17:00"}]',
+                  notes: '必須使用 day_of_week, start_time, end_time 作為屬性名稱，day_of_week 範圍是 0-6 (0=星期日)，時間格式為 HH:MM'
+                }
+              }
+            };
+
 						returnData.push({
 							json: errorData,
 							error: new NodeOperationError(node, parsedError.message, { itemIndex: i, description: parsedError.description ?? undefined }),

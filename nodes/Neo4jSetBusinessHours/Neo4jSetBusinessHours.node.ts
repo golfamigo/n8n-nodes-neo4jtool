@@ -7,6 +7,7 @@ import type {
 	INodeType,
 	INodeTypeDescription,
 	ICredentialDataDecryptedObject,
+	IDataObject,
 } from 'n8n-workflow';
 import { NodeOperationError, jsonParse } from 'n8n-workflow';
 import neo4j, { Driver, Session, auth } from 'neo4j-driver';
@@ -14,6 +15,7 @@ import neo4j, { Driver, Session, auth } from 'neo4j-driver';
 // --- IMPORTANT: Shared Utilities ---
 import {
 	parseNeo4jError,
+	runCypherQuery,
 } from '../neo4j/helpers/utils';
 
 // --- 引入時間處理工具函數 ---
@@ -58,13 +60,13 @@ export class Neo4jSetBusinessHours implements INodeType {
 				description: '要設定營業時間的商家 ID',
 			},
 			{
-				displayName: 'Hours Data (JSON Array)',
+				displayName: 'Hours Data',
 				name: 'hoursData',
 				type: 'string', // 保持為 string 類型以兼容 MCP
 				required: true,
 				default: '[\n  {\n    "day_of_week": 1,\n    "start_time": "09:00",\n    "end_time": "17:00"\n  }\n]',
-				description: '包含每天營業時間的 JSON 陣列。如果某天休息，則不包含該天的物件。',
-				hint: '格式: [{"day_of_week": 1, "start_time": "HH:MM", "end_time": "HH:MM"}, ...] (時間為 UTC)',
+				description: '包含每天營業時間的 JSON 陣列。格式必須是 day_of_week, start_time, end_time。',
+				hint: '格式: [{"day_of_week": 1, "start_time": "09:00", "end_time": "17:00"}, ...] (時間為 HH:MM 格式)',
 				typeOptions: {
 					rows: 10,
 				}
@@ -115,7 +117,7 @@ export class Neo4jSetBusinessHours implements INodeType {
 					const businessId = this.getNodeParameter('businessId', i, '') as string;
 					const hoursDataRaw = this.getNodeParameter('hoursData', i, '[]') as string;
 
-					console.log('Raw hours data input:', hoursDataRaw);
+					this.logger.debug('Raw hours data input:', { data: hoursDataRaw });
 
 					// Parse and validate hoursData - 改進解析流程，更寬容地處理輸入
 					let hoursData: any[];
@@ -130,30 +132,38 @@ export class Neo4jSetBusinessHours implements INodeType {
 						hoursData = jsonParse(jsonToParse);
 
 						if (!Array.isArray(hoursData)) {
-							throw new NodeOperationError(node, 'Hours Data must be a valid JSON array.', { itemIndex: i });
+							throw new NodeOperationError(node, 'Hours Data must be a valid JSON array.', {
+                itemIndex: i,
+                description: `提供的格式不是有效的 JSON 陣列。應為: [{"day_of_week": 1, "start_time": "09:00", "end_time": "17:00"}]。收到的值: ${hoursDataRaw}`
+              });
 						}
 
-						console.log('Parsed hours data:', JSON.stringify(hoursData, null, 2));
+						this.logger.debug('Parsed hours data:', { data: JSON.stringify(hoursData, null, 2) });
 
 						// 處理並規範化每個條目，使用 timeUtils 進行時間處理
 						hoursData = hoursData.map(entry => {
-							// 確保 day_of_week 是數字
-							const dayOfWeek = typeof entry.day_of_week === 'string'
-								? parseInt(entry.day_of_week, 10)
-								: (entry.day_of_week || 0);
+							// 同時接受蛇形命名法和駝峰命名法
+							const dayOfWeekValue = entry.day_of_week !== undefined ? entry.day_of_week : entry.dayOfWeek;
+							const dayOfWeek = typeof dayOfWeekValue === 'string'
+								? parseInt(dayOfWeekValue, 10)
+								: (dayOfWeekValue || 0);
 
 							// 如果 day_of_week 範圍不對，報錯
 							if (isNaN(dayOfWeek) || dayOfWeek < 1 || dayOfWeek > 7) {
-								throw new NodeOperationError(node, `Invalid day_of_week (${entry.day_of_week}). Must be between 1 (Monday) and 7 (Sunday).`, { itemIndex: i });
+								throw new NodeOperationError(node, `無效的星期值。必須是 1-7 之間的整數 (1=星期一, 7=星期日)。收到的值: day_of_week=${dayOfWeekValue}`, { itemIndex: i });
 							}
 
+							// 支援不同的時間格式和命名風格
+							const startTimeValue = entry.start_time !== undefined ? entry.start_time : entry.startTime;
+							const endTimeValue = entry.end_time !== undefined ? entry.end_time : entry.endTime;
+
 							// 使用時間處理工具規範化時間格式
-							const startTime = normalizeTimeOnly(entry.start_time);
-							const endTime = normalizeTimeOnly(entry.end_time);
+							const startTime = normalizeTimeOnly(startTimeValue);
+							const endTime = normalizeTimeOnly(endTimeValue);
 
 							// 確保時間格式正確
 							if (!startTime || !endTime) {
-								throw new NodeOperationError(node, `Missing or invalid time format in entry: ${JSON.stringify(entry)}`, { itemIndex: i });
+								throw new NodeOperationError(node, `無效的時間格式。請使用 "HH:MM" 格式。收到的值: start_time="${startTimeValue}", end_time="${endTimeValue}"`, { itemIndex: i });
 							}
 
 							// 返回規範化的條目
@@ -164,14 +174,19 @@ export class Neo4jSetBusinessHours implements INodeType {
 							};
 						});
 
-						console.log('Normalized hours data:', JSON.stringify(hoursData, null, 2));
+						this.logger.debug('Normalized hours data:', { data: JSON.stringify(hoursData, null, 2)});
 
 					} catch (jsonError) {
 						console.error('JSON parsing error:', jsonError);
-						throw new NodeOperationError(node, `Invalid JSON in Hours Data field: ${jsonError.message}`, { itemIndex: i });
+						throw new NodeOperationError(node, `無效的 JSON 格式: ${jsonError.message}`, {
+              itemIndex: i,
+              description: `預期的格式為: [{"day_of_week": 1, "start_time": "09:00", "end_time": "17:00"}]。`
+            });
 					}
 
-					// 6. 執行 - 修改為兩個單獨的查詢，而不是一個事務
+					// 6. 使用 runCypherQuery 輔助函數執行查詢
+
+					// 確保 session 可用
 					if (!session) {
 						throw new NodeOperationError(node, 'Neo4j session is not available.', { itemIndex: i });
 					}
@@ -185,43 +200,43 @@ export class Neo4jSetBusinessHours implements INodeType {
 					`;
 
 					this.logger.debug(`Executing delete query for businessId: ${businessId}`);
-					const deleteResult = await session.run(deleteQuery, { businessId });
-					const deletedCount = deleteResult.records[0].get('deletedCount').toNumber();
+					const deleteParams: IDataObject = { businessId };
+					const deleteResults = await runCypherQuery.call(this, session, deleteQuery, deleteParams, true, i);
+					const deletedCount = deleteResults[0]?.json?.deletedCount || 0;
 					this.logger.debug(`Deleted ${deletedCount} existing business hours`);
 
 					// 只有當有營業時間資料時才創建新記錄
 					let hoursSetCount = 0;
 					if (hoursData.length > 0) {
 						// 創建新的營業時間，使用 toNeo4jTimeString 格式化時間
-						const createQuery = `
-							MATCH (b:Business {business_id: $businessId})
-							UNWIND $hoursData AS dayHours
-							CREATE (bh:BusinessHours {
-								business_id: $businessId,
-								day_of_week: dayHours.day_of_week,
-								start_time: time($startTime),
-								end_time: time($endTime),
-								created_at: datetime()
-							})
-							MERGE (b)-[:HAS_HOURS]->(bh)
-							RETURN count(bh) as createdCount
-						`;
-
-						this.logger.debug(`Executing create query for businessId: ${businessId} with ${hoursData.length} entries.`);
-
-						// 處理每個營業時間條目
 						for (const hourData of hoursData) {
+							const createQuery = `
+								MATCH (b:Business {business_id: $businessId})
+								CREATE (bh:BusinessHours {
+									business_id: $businessId,
+									day_of_week: $dayOfWeek,
+									start_time: time($startTime),
+									end_time: time($endTime),
+									created_at: datetime()
+								})
+								MERGE (b)-[:HAS_HOURS]->(bh)
+								RETURN count(bh) as createdCount
+							`;
+
 							const startTime = toNeo4jTimeString(hourData.start_time);
 							const endTime = toNeo4jTimeString(hourData.end_time);
 
-							const createResult = await session.run(createQuery, {
+							const createParams: IDataObject = {
 								businessId,
-								hoursData: [hourData],
+								dayOfWeek: neo4j.int(hourData.day_of_week),
 								startTime,
 								endTime
-							});
+							};
 
-							hoursSetCount += createResult.records[0].get('createdCount').toNumber();
+							this.logger.debug(`Creating business hours record for day ${hourData.day_of_week}`);
+							const createResults = await runCypherQuery.call(this, session, createQuery, createParams, true, i);
+							const createdCount = createResults[0]?.json?.createdCount || 0;
+							hoursSetCount += (typeof createdCount === 'number' ? createdCount : 0);
 						}
 
 						this.logger.debug(`Created ${hoursSetCount} new business hours`);
@@ -244,7 +259,17 @@ export class Neo4jSetBusinessHours implements INodeType {
 					if (this.continueOnFail(itemError)) {
 						const item = items[i];
 						const parsedError = parseNeo4jError(node, itemError);
-						const errorData = { ...item.json, error: parsedError };
+						const errorData = {
+              ...item.json,
+              error: {
+                ...parsedError,
+                expectedFormat: {
+                  example: '[{"day_of_week": 1, "start_time": "09:00", "end_time": "17:00"}]',
+                  notes: '必須使用 day_of_week, start_time, end_time 作為屬性名稱，時間格式為 HH:MM'
+                }
+              }
+            };
+
 						returnData.push({
 							json: errorData,
 							error: new NodeOperationError(node, parsedError.message, { itemIndex: i, description: parsedError.description ?? undefined }),

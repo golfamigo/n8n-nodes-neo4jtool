@@ -91,7 +91,7 @@
     "attributes": {
       // 建議複合唯一鍵 (staff_id, day_of_week)
       "staff_id": "STRING indexed",
-      "day_of_week": "INTEGER indexed", // 1-7
+      "day_of_week": "INTEGER indexed", // 0-6 (0=Sunday)
       "start_time": "TIME", // Represents UTC time
       "end_time": "TIME", // Represents UTC time
       "created_at": "DATETIME", // Stored as UTC
@@ -117,7 +117,7 @@
       // is_system 已移除
     },
     "relationships": {
-      "BOOKED_BY": "Customer",
+      "BOOKED_BY": "Customer", // 應為 MAKES 反向
       "AT_BUSINESS": "Business",
       "FOR_SERVICE": "Service",
       "SERVED_BY": "Staff", // 可選
@@ -180,7 +180,7 @@
     "label": "BusinessHours",
     "attributes": {
         "business_id": "STRING indexed",
-        "day_of_week": "INTEGER indexed",
+        "day_of_week": "INTEGER indexed", // 0-6 (0=Sunday)
         "start_time": "TIME", // Represents UTC time
         "end_time": "TIME", // Represents UTC time
         "created_at": "DATETIME", // Stored as UTC
@@ -250,19 +250,19 @@
 ## 創建商家 (CreateBusiness)
 
 請參考上方提供的 **Neo4j 資料庫 Schema** 和最新的 **NodeTemplate.ts.txt** 模板，開發一個名為 `CreateBusiness` 的 n8n 節點。
-- `displayName`: 'Neo4j: Create Business'
+- `displayName`: 'Neo4j Create Business'
 - `name`: `neo4jCreateBusiness`
 - `description`: '創建一個新的商家記錄並關聯所有者。'
-- **參數**: (參考 Business Schema 屬性)
-    - `ownerUserId` (string, required, Description: '關聯的 User 節點的內部 ID')
-    - `name` (string, required)
+- **參數**:
+    - `ownerUserId` (string, required, Description: '關聯的 User 節點的內部 ID (不是 external_id)')
+    - `name` (string, required, Description: '商家名稱')
     - `type` (string, required, Description: '商家類型 (例如 Salon, Clinic)')
-    - `address` (string, required)
-    - `phone` (string, required)
-    - `email` (string, required)
-    - `description` (string, required)
-    - `booking_mode` (string, required, type: options, options: ['ResourceOnly', 'StaffOnly', 'StaffAndResource', 'TimeOnly'], Description: '商家的預約檢查模式')
-- **核心邏輯**: `execute` 方法需先 `MATCH (owner:User {id: $ownerUserId})`，然後 `CREATE (b:Business {business_id: randomUUID(), name: $name, type: $type, address: $address, phone: $phone, email: $email, description: $description, booking_mode: $booking_mode, created_at: datetime()})`，設定所有提供的屬性，最後 `MERGE (owner)-[:OWNS]->(b)` 建立關係。返回創建的 Business 節點。
+    - `address` (string, required, Description: '商家地址')
+    - `phone` (string, required, Description: '商家聯繫電話')
+    - `email` (string, required, placeholder: 'name@email.com', Description: '商家聯繫電子郵件')
+    - `description` (string, required, Description: '商家描述')
+    - `booking_mode` (string, required, default: 'TimeOnly', Description: '商家的預約檢查模式 (ResourceOnly, StaffOnly, StaffAndResource, TimeOnly)')
+- **核心邏輯**: `MATCH (owner:User {id: $ownerUserId}) CREATE (b:Business {business_id: randomUUID(), name: $name, type: $type, address: $address, phone: $phone, email: $email, description: $description, booking_mode: $booking_mode, created_at: datetime()}) MERGE (owner)-[:OWNS]->(b) RETURN b {.*} AS business`
 
 ## 查找商家 (FindBusinessByName)
 
@@ -277,19 +277,19 @@
 ## 更新商家 (UpdateBusiness)
 
 請參考上方提供的 **Neo4j 資料庫 Schema** 和最新的 **NodeTemplate.ts.txt** 模板，開發一個名為 `UpdateBusiness` 的 n8n 節點。
-- `displayName`: 'Neo4j: Update Business'
+- `displayName`: 'Neo4j Update Business'
 - `name`: `neo4jUpdateBusiness`
 - `description`: '根據 business_id 更新商家資訊。'
 - **參數**:
     - `businessId` (string, required, Description: '要更新的商家 ID')
-    - `name` (string, optional)
-    - `type` (string, optional)
-    - `address` (string, optional)
-    - `phone` (string, optional)
-    - `email` (string, optional)
-    - `description` (string, optional)
-    - `booking_mode` (string, optional, type: options, options: ['ResourceOnly', 'StaffOnly', 'StaffAndResource', 'TimeOnly'])
-- **核心邏輯**: `execute` 方法應 `MATCH (b:Business {business_id: $businessId})`，然後使用 `SET` 更新所有提供的非空參數，並更新 `b.updated_at = datetime()`。返回更新後的 Business 節點。
+    - `name` (string, optional, Description: '新的商家名稱')
+    - `type` (string, optional, Description: '新的商家類型')
+    - `address` (string, optional, Description: '新的商家地址')
+    - `phone` (string, optional, Description: '新的商家聯繫電話')
+    - `email` (string, optional, placeholder: 'name@email.com', Description: '新的商家聯繫電子郵件')
+    - `description` (string, optional, Description: '新的商家描述')
+    - `booking_mode` (string, optional, Description: '新的商家預約檢查模式 (ResourceOnly, StaffOnly, StaffAndResource, TimeOnly)')
+- **核心邏輯**: `MATCH (b:Business {business_id: $businessId}) SET [動態更新提供的參數], b.updated_at = datetime() RETURN b {.*} AS business` (如果沒有提供可選參數，則僅返回現有數據)。
 
 ## 刪除商家 (DeleteBusiness)
 
@@ -307,34 +307,34 @@
 - `displayName`: 'Neo4j: Find Services by Business'
 - `name`: `neo4jFindServicesByBusiness`
 - `description`: '查找指定商家提供的所有服務項目。'
+- **參數**:
+    - `businessId` (string, required, Description: '要查詢的商家 ID')
+- **核心邏輯**: `execute` 方法應執行 `MATCH (b:Business {business_id: $businessId})-[:OFFERS]->(s:Service) RETURN s {.*, service_id: s.service_id} AS service`。
 
 **--- Business Hours Operations ---**
 
 ## 設定商家營業時間 (SetBusinessHours)
 
 請參考上方提供的 **Neo4j 資料庫 Schema** 和最新的 **NodeTemplate.ts.txt** 模板，開發一個名為 `SetBusinessHours` 的 n8n 節點。
-- `displayName`: 'Neo4j: Set Business Hours'
+- `displayName`: 'Neo4j Set Business Hours'
 - `name`: `neo4jSetBusinessHours`
 - `description`: '設定或更新指定商家的營業時間 (會覆蓋舊設定)。'
 - **參數**:
-    - `businessId` (string, required)
-    - `hoursData` (json, required, Description: '包含每天營業時間的 JSON 陣列，格式：`[{"day_of_week": 1, "start_time": "HH:MM", "end_time": "HH:MM"}, ...]` (時間應為 UTC)。如果某天休息，則不包含該天的物件。')
+    - `businessId` (string, required, Description: '要設定營業時間的商家 ID')
+    - `hoursData` (string, required, default: '[{"day_of_week": 1, "start_time": "09:00", "end_time": "17:00"}]', Description: '包含每天營業時間的 JSON 陣列。格式: [{"day_of_week": 1-7, "start_time": "HH:MM", "end_time": "HH:MM"}, ...] (時間為 UTC)。如果某天休息，則不包含該天的物件。')
 - **核心邏輯**:
-    1. `MATCH (b:Business {business_id: $businessId})`
-    2. `OPTIONAL MATCH (b)-[r:HAS_HOURS]->(oldBh:BusinessHours) DELETE r, oldBh` (刪除舊的營業時間)
-    3. `UNWIND $hoursData AS dayHours` (展開輸入的 JSON 陣列)
-    4. `CREATE (bh:BusinessHours {business_id: $businessId, day_of_week: dayHours.day_of_week, start_time: time(dayHours.start_time), end_time: time(dayHours.end_time), created_at: datetime()})`
-    5. `MERGE (b)-[:HAS_HOURS]->(bh)`
+    1. `MATCH (b:Business {business_id: $businessId}) OPTIONAL MATCH (b)-[r:HAS_HOURS]->(oldBh:BusinessHours) DELETE r, oldBh`
+    2. `MATCH (b:Business {business_id: $businessId}) UNWIND $hoursData AS dayHours CREATE (bh:BusinessHours {business_id: $businessId, day_of_week: dayHours.day_of_week, start_time: time($startTime), end_time: time($endTime), created_at: datetime()}) MERGE (b)-[:HAS_HOURS]->(bh)` (對每個 hoursData 條目執行，使用 `toNeo4jTimeString` 格式化時間)
 
 ## 獲取商家營業時間 (GetBusinessHours)
 
 請參考上方提供的 **Neo4j 資料庫 Schema** 和最新的 **NodeTemplate.ts.txt** 模板，開發一個名為 `GetBusinessHours` 的 n8n 節點。
-- `displayName`: 'Neo4j: Get Business Hours'
+- `displayName`: 'Neo4j Get Business Hours'
 - `name`: `neo4jGetBusinessHours`
 - `description`: '獲取指定商家的營業時間列表。'
 - **參數**:
-    - `businessId` (string, required)
-- **核心邏輯**: `MATCH (b:Business {business_id: $businessId})-[:HAS_HOURS]->(bh:BusinessHours) RETURN bh { .day_of_week, start_time: toString(bh.start_time), end_time: toString(bh.end_time) } ORDER BY bh.day_of_week`。
+    - `businessId` (string, required, Description: '要獲取營業時間的商家 ID')
+- **核心邏輯**: `MATCH (b:Business {business_id: $businessId})-[:HAS_HOURS]->(bh:BusinessHours) RETURN bh { .day_of_week, start_time: apoc.temporal.format(bh.start_time, 'HH:mm'), end_time: apoc.temporal.format(bh.end_time, 'HH:mm') } AS businessHour ORDER BY bh.day_of_week`。
 
 ## 刪除商家營業時間 (DeleteBusinessHours)
 
@@ -346,39 +346,35 @@
     - `businessId` (string, required)
 - **核心邏輯**: `MATCH (b:Business {business_id: $businessId})-[r:HAS_HOURS]->(bh:BusinessHours) DETACH DELETE bh`。
 
-- **參數**:
-    - `businessId` (string, required, Description: '要查詢的商家 ID')
-- **核心邏輯**: `execute` 方法應執行 `MATCH (b:Business {business_id: $businessId})-[:OFFERS]->(s:Service) RETURN s {.*, service_id: s.service_id} AS service`。
-
 **--- Resource Operations ---**
 
 ## 創建資源 (CreateResource)
 
 請參考上方提供的 **Neo4j 資料庫 Schema** 和最新的 **NodeTemplate.ts.txt** 模板，開發一個名為 `CreateResource` 的 n8n 節點。
-- `displayName`: 'Neo4j: Create Resource'
+- `displayName`: 'Neo4j Create Resource'
 - `name`: `neo4jCreateResource`
 - `description`: '創建一個新的資源記錄並關聯到商家。'
 - **參數**:
-    - `businessId` (string, required)
-    - `type` (string, required, Description: '資源類型, 建議先用 ListResourceTypes 查詢')
-    - `name` (string, required, Description: '資源名稱/編號')
-    - `capacity` (integer, optional)
-    - `properties` (json, optional, Description: '其他屬性 (JSON 格式)')
-- **核心邏輯**: `execute` 方法需先 `MATCH (b:Business {business_id: $businessId})`，然後 `CREATE (r:Resource {resource_id: randomUUID(), business_id: $businessId, type: $type, name: $name, capacity: $capacity, properties: $propertiesJsonString, created_at: datetime()})`，最後 `MERGE (b)-[:HAS_RESOURCE]->(r)`。返回創建的 Resource 節點。
+    - `businessId` (string, required, Description: '資源所屬的商家 ID')
+    - `type` (string, required, Description: '資源類型 (例如 Table, Seat, Room). 建議先用 ListResourceTypes 查詢.')
+    - `name` (string, required, Description: '資源名稱/編號 (例如 Table 5, Window Seat 2)')
+    - `capacity` (number, optional, Description: '資源容量')
+    - `propertiesJson` (json, optional, default: '{}', Description: '其他屬性 (JSON 格式, 例如 {"feature": "window_view"})')
+- **核心邏輯**: `MATCH (b:Business {business_id: $businessId}) CREATE (r:Resource {resource_id: randomUUID(), business_id: $businessId, type: $type, name: $name, capacity: $capacity, properties: $propertiesJsonString, created_at: datetime()}) MERGE (b)-[:HAS_RESOURCE]->(r) RETURN r {.*} AS resource` (capacity 需轉為 Neo4j Integer 或 null, propertiesJson 需轉為 JSON 字串)
 
 ## 更新資源 (UpdateResource)
 
 請參考上方提供的 **Neo4j 資料庫 Schema** 和最新的 **NodeTemplate.ts.txt** 模板，開發一個名為 `UpdateResource` 的 n8n 節點。
-- `displayName`: 'Neo4j: Update Resource'
+- `displayName`: 'Neo4j Update Resource'
 - `name`: `neo4jUpdateResource`
 - `description`: '根據 resource_id 更新資源資訊。'
 - **參數**:
-    - `resourceId` (string, required)
-    - `type` (string, optional)
-    - `name` (string, optional)
-    - `capacity` (integer, optional)
-    - `properties` (json, optional)
-- **核心邏輯**: `execute` 方法應 `MATCH (r:Resource {resource_id: $resourceId})`，使用 `SET` 更新提供的參數（`properties` 需轉為 JSON 字串）及 `r.updated_at = datetime()`。返回更新後的 Resource 節點。
+    - `resourceId` (string, required, Description: '要更新的資源 ID')
+    - `type` (string, optional, Description: '新的資源類型')
+    - `name` (string, optional, Description: '新的資源名稱/編號')
+    - `capacity` (number, optional, Description: '新的資源容量')
+    - `propertiesJson` (json, optional, Description: '要更新或添加的其他屬性 (JSON 格式)。留空則不更新此項。')
+- **核心邏輯**: `MATCH (r:Resource {resource_id: $resourceId}) SET [動態更新提供的參數], r.updated_at = datetime() RETURN r {.*} AS resource` (capacity 需轉為 Neo4j Integer, propertiesJson 需轉為 JSON 字串並使用 `r.properties = $propertiesJsonString`)。如果沒有提供可選參數，則僅返回現有數據。
 
 ## 刪除資源 (DeleteResource)
 
@@ -468,7 +464,7 @@
 - **參數**:
     - `externalId` (string, required, Description: '用戶的 External ID')
     - `businessId` (string, required, Description: '客戶註冊的商家 ID')
-- **核心邏輯**: `execute` 方法應執行 `MATCH (u:User {external_id: $externalId})-[:HAS_USER_ACCOUNT]->(c:Customer)-[:REGISTERED_WITH]->(b:Business {business_id: $businessId}) RETURN c {.*} AS customer`。如果找不到，表示該用戶尚未成為該商家的客戶。
+- **核心邏輯**: `execute` 方法應執行 `MATCH (u:User {external_id: $externalId})<-[:HAS_USER_ACCOUNT]-(c:Customer)-[:REGISTERED_WITH]->(b:Business {business_id: $businessId}) RETURN c {.*} AS customer`。如果找不到，表示該用戶尚未成為該商家的客戶。
 
 ## 更新客戶 (UpdateCustomer)
 
@@ -515,7 +511,7 @@
 - `description`: '根據用戶 External ID 查找關聯的員工記錄。'
 - **參數**:
     - `externalId` (string, required, Description: '用戶的 External ID')
-- **核心邏輯**: `execute` 方法應執行 `MATCH (u:User {external_id: $externalId})-[:ACCOUNT_FOR_STAFF]->(st:Staff) RETURN st {.*} AS staff`。
+- **核心邏輯**: `execute` 方法應執行 `MATCH (u:User {external_id: $externalId})<-[:HAS_USER_ACCOUNT]-(st:Staff) RETURN st {.*} AS staff`。
 
 ## 更新員工 (UpdateStaff)
 
@@ -561,22 +557,26 @@
     - `serviceId` (string, required)
 - **核心邏輯**: `execute` 方法應 `MATCH (st:Staff {staff_id: $staffId}), (s:Service {service_id: $serviceId}) MERGE (st)-[:CAN_PROVIDE]->(s)`。
 
+**--- Staff Availability Operations ---**
+
 ## 設定員工可用性 (SetStaffAvailability)
 
 請參考上方提供的 **Neo4j 資料庫 Schema** 和最新的 **NodeTemplate.ts.txt** 模板，開發一個名為 `SetStaffAvailability` 的 n8n 節點。
-- `displayName`: 'Neo4j: Set Staff Availability'
+- `displayName`: 'Neo4j Set Staff Availability'
 - `name`: `neo4jSetStaffAvailability`
 - `description`: '設定或更新指定員工在特定星期幾的可用起訖時間。'
 - **參數**:
-    - `staffId` (string, required)
-    - `dayOfWeek` (number, required, Description: '1=Mon, 7=Sun')
-    - `startTime` (string, required, Description: 'HH:MM')
-    - `endTime` (string, required, Description: 'HH:MM')
-- **核心邏輯**: `execute` 方法需使用 `MERGE (sa:StaffAvailability {staff_id: $staffId, day_of_week: $dayOfWeek}) ON CREATE SET sa.start_time = time($startTime), sa.end_time = time($endTime), sa.created_at = datetime() ON MATCH SET sa.start_time = time($startTime), sa.end_time = time($endTime), sa.updated_at = datetime()`。
+    - `staffId` (string, required, Description: '目標員工的 staff_id')
+    - `dayOfWeek` (string, required, default: '1', Description: '星期幾 (0-6, 0 是星期日, 1 是星期一)')
+    - `startTime` (string, required, default: '09:00', placeholder: 'HH:MM', Description: '開始時間 (HH:MM 格式)')
+    - `endTime` (string, required, default: '17:00', placeholder: 'HH:MM', Description: '結束時間 (HH:MM 格式)')
+- **核心邏輯**:
+    1. `MATCH (st:Staff {staff_id: $staffId})-[r:HAS_AVAILABILITY]->(sa:StaffAvailability) WHERE sa.day_of_week = $dayOfWeek DELETE r, sa`
+    2. `MATCH (st:Staff {staff_id: $staffId}) CREATE (st)-[:HAS_AVAILABILITY]->(sa:StaffAvailability {staff_id: $staffId, day_of_week: $dayOfWeek, start_time: time($startTime), end_time: time($endTime), created_at: datetime()}) RETURN sa {...}` (dayOfWeek 需轉為 Neo4j Integer, startTime/endTime 使用 `toNeo4jTimeString` 格式化)
 
 **--- Booking & Availability Operations ---**
 
-## 查找可用時段 (FindAvailableSlots)
+<!-- ## 查找可用時段 (FindAvailableSlots)
 
 請參考上方提供的 **Neo4j 資料庫 Schema** 和最新的 **NodeTemplate.ts.txt** 模板，開發一個名為 `FindAvailableSlots` 的 n8n 節點。
 - `displayName`: 'Neo4j: Find Available Slots'
@@ -609,37 +609,110 @@
   - 該節點處理複雜的日期時間和數值計算，必須正確處理 Neo4j 返回的 Integer 和 DateTime 類型
   - 在處理營業時間和其他屬性時，使用 `convertNeo4jValueToJs` 函數轉換 Neo4j 數據類型
   - 日期時間比較需要考慮格式和時區問題
+612 | -->
+
+## 查找可用時段 (TimeOnly)
+
+請參考上方提供的 **Neo4j 資料庫 Schema** 和最新的 **NodeTemplate.ts.txt** 模板，開發一個名為 `FindAvailableSlotsTimeOnly` 的 n8n 節點。
+- `displayName`: 'Neo4j Find Available Slots TimeOnly'
+- `name`: `neo4jFindAvailableSlotsTimeOnly`
+- `description`: '根據時間查找可用的預約時間段 (僅考慮時間衝突)'
+- **參數**:
+    - `businessId` (string, required, Description: '要查詢可用時段的商家 ID')
+    - `serviceId` (string, required, Description: '要預約的服務 ID (用於獲取時長)')
+    - `startDateTime` (string, required, Description: '查詢範圍的開始時間 (ISO 8601 格式, 需含時區)')
+    - `endDateTime` (string, required, Description: '查詢範圍的結束時間 (ISO 8601 格式, 需含時區)')
+    - `intervalMinutes` (number, default: 15, Description: '生成潛在預約時段的時間間隔（分鐘）')
+- **核心邏輯**:
+    1. 查詢商家信息 (確保 `booking_mode` 為 'TimeOnly')、服務時長和營業時間。
+    2. 使用 `generateTimeSlotsWithBusinessHours` 生成潛在時段。
+    3. 執行 Cypher 查詢：`UNWIND $potentialSlots AS slotStr WITH datetime(slotStr) AS slotStart ... MATCH (b:Business {business_id: $businessId}) MATCH (s:Service {service_id: $serviceId}) ... WITH b, s, slotStart, duration({minutes: s.duration_minutes}) AS serviceDuration, slotStart + serviceDuration AS slotEnd MATCH (b)-[:HAS_HOURS]->(bh:BusinessHours) WHERE bh.day_of_week = date(slotStart).dayOfWeek AND time(bh.start_time) <= time(slotStart) AND time(bh.end_time) >= time(slotEnd) WITH b, slotStart, slotEnd WHERE NOT EXISTS { MATCH (bk:Booking)-[:AT_BUSINESS]->(b) WHERE bk.booking_time < slotEnd AND bk.booking_time + duration({minutes: $durationMinutes}) > slotStart } RETURN toString(slotStart) AS availableSlot ORDER BY availableSlot`
+
+## 查找可用時段 (StaffOnly)
+
+請參考上方提供的 **Neo4j 資料庫 Schema** 和最新的 **NodeTemplate.ts.txt** 模板，開發一個名為 `FindAvailableSlotsStaffOnly` 的 n8n 節點。
+- `displayName`: 'Neo4j Find Available Slots StaffOnly'
+- `name`: `neo4jFindAvailableSlotsStaffOnly`
+- `description`: '根據時間和員工可用性查找可用的預約時間段'
+- **參數**:
+    - `businessId` (string, required, Description: '要查詢可用時段的商家 ID')
+    - `serviceId` (string, required, Description: '要預約的服務 ID (用於獲取時長)')
+    - `startDateTime` (string, required, Description: '查詢範圍的開始時間 (ISO 8601 格式, 需含時區)')
+    - `endDateTime` (string, required, Description: '查詢範圍的結束時間 (ISO 8601 格式, 需含時區)')
+    - `intervalMinutes` (number, default: 15, Description: '生成潛在預約時段的時間間隔（分鐘）')
+    - `requiredStaffId` (string, required, Description: '指定員工的 ID（在 StaffOnly 模式下必填）')
+- **核心邏輯**:
+    1. 查詢商家信息 (確保 `booking_mode` 為 'StaffOnly')、服務時長、營業時間和指定員工信息 (確認存在且能提供服務)。
+    2. 使用 `generateTimeSlotsWithBusinessHours` 生成潛在時段。
+    3. 執行 Cypher 查詢：`UNWIND $potentialSlots AS slotStr WITH datetime(slotStr) AS slotStart ... MATCH (b:Business {business_id: $businessId}) MATCH (s:Service {service_id: $serviceId}) ... WITH b, s, slotStart, duration({minutes: s.duration_minutes}) AS serviceDuration, slotStart + serviceDuration AS slotEnd MATCH (b)-[:HAS_HOURS]->(bh:BusinessHours) WHERE ... MATCH (b)-[:EMPLOYS]->(st:Staff {staff_id: $requiredStaffId}) WHERE EXISTS { MATCH (st)-[:CAN_PROVIDE]->(s) } AND EXISTS { MATCH (st)-[:HAS_AVAILABILITY]->(sa:StaffAvailability) WHERE sa.day_of_week = date(slotStart).dayOfWeek AND time(sa.start_time) <= time(slotStart) AND time(sa.end_time) >= time(slotEnd) } AND NOT EXISTS { MATCH (bk:Booking)-[:SERVED_BY]->(st) WHERE bk.booking_time < slotEnd AND bk.booking_time + duration({minutes: $durationMinutes}) > slotStart } WITH b, st, slotStart, slotEnd WHERE NOT EXISTS { MATCH (bk:Booking)-[:AT_BUSINESS]->(b) WHERE bk.booking_time < slotEnd AND bk.booking_time + duration({minutes: $durationMinutes}) > slotStart AND NOT EXISTS { MATCH (bk)-[:SERVED_BY]->(st) } } RETURN toString(slotStart) AS availableSlot, st.name AS staffName ORDER BY availableSlot`
+
+## 查找可用時段 (ResourceOnly)
+
+請參考上方提供的 **Neo4j 資料庫 Schema** 和最新的 **NodeTemplate.ts.txt** 模板，開發一個名為 `FindAvailableSlotsResourceOnly` 的 n8n 節點。
+- `displayName`: 'Neo4j Find Available Slots ResourceOnly'
+- `name`: `neo4jFindAvailableSlotsResourceOnly`
+- `description`: '根據時間和資源可用性查找可用的預約時間段'
+- **參數**:
+    - `businessId` (string, required, Description: '要查詢可用時段的商家 ID')
+    - `serviceId` (string, required, Description: '要預約的服務 ID (用於獲取時長)')
+    - `startDateTime` (string, required, Description: '查詢範圍的開始時間 (ISO 8601 格式, 需含時區)')
+    - `endDateTime` (string, required, Description: '查詢範圍的結束時間 (ISO 8601 格式, 需含時區)')
+    - `intervalMinutes` (number, default: 15, Description: '生成潛在預約時段的時間間隔（分鐘）')
+    - `requiredResourceType` (string, required, Description: '所需資源類型（如 Chair、Room、Table 等），必填')
+    - `requiredResourceCapacity` (number, default: 1, Description: '所需資源容量（預設為 1）')
+- **核心邏輯**:
+    1. 查詢商家信息 (確保 `booking_mode` 為 'ResourceOnly')、服務時長、營業時間和符合條件的資源數量。
+    2. 使用 `generateTimeSlotsWithBusinessHours` 生成潛在時段。
+    3. 執行 Cypher 查詢：`UNWIND $potentialSlots AS slotStr WITH datetime(slotStr) AS slotStart ... MATCH (b:Business {business_id: $businessId}) MATCH (s:Service {service_id: $serviceId}) ... WITH b, s, slotStart, duration({minutes: s.duration_minutes}) AS serviceDuration, slotStart + serviceDuration AS slotEnd MATCH (b)-[:HAS_HOURS]->(bh:BusinessHours) WHERE ... MATCH (b)-[:HAS_RESOURCE]->(r:Resource) WHERE r.type = $requiredResourceType AND r.capacity >= $requiredResourceCapacity OPTIONAL MATCH (bk:Booking)-[:AT_BUSINESS]->(b) WHERE bk.booking_time < slotEnd AND bk.booking_time + duration({minutes: $durationMinutes}) > slotStart WITH slotStart, count(r) AS totalResources, count(bk) AS concurrentBookings WHERE totalResources > concurrentBookings RETURN toString(slotStart) AS availableSlot, totalResources, totalResources - concurrentBookings AS availableResourcesCount ORDER BY availableSlot`
+
+## 查找可用時段 (StaffAndResource)
+
+請參考上方提供的 **Neo4j 資料庫 Schema** 和最新的 **NodeTemplate.ts.txt** 模板，開發一個名為 `FindAvailableSlotsStaffAndResource` 的 n8n 節點。
+- `displayName`: 'Neo4j Find Available Slots StaffAndResource'
+- `name`: `neo4jFindAvailableSlotsStaffAndResource`
+- `description`: '根據時間、員工和資源可用性查找可用的預約時間段'
+- **參數**:
+    - `businessId` (string, required, Description: '要查詢可用時段的商家 ID')
+    - `serviceId` (string, required, Description: '要預約的服務 ID (用於獲取時長)')
+    - `startDateTime` (string, required, Description: '查詢範圍的開始時間 (ISO 8601 格式, 需含時區)')
+    - `endDateTime` (string, required, Description: '查詢範圍的結束時間 (ISO 8601 格式, 需含時區)')
+    - `intervalMinutes` (number, default: 15, Description: '生成潛在預約時段的時間間隔（分鐘）')
+    - `requiredStaffId` (string, required, Description: '指定員工的 ID（在 StaffAndResource 模式下必填）')
+    - `requiredResourceType` (string, required, Description: '需要的資源類型 (例如 Chair, Table)（在 StaffAndResource 模式下必填）')
+    - `requiredResourceCapacity` (number, default: 1, Description: '所需資源的最小容量')
+- **核心邏輯**:
+    1. 查詢商家信息 (確保 `booking_mode` 為 'StaffAndResource')、服務時長、營業時間、指定員工信息和符合條件的資源列表。
+    2. 使用 `generateTimeSlotsWithBusinessHours` 生成潛在時段。
+    3. 執行 Cypher 查詢：`UNWIND $potentialSlots AS slotStr WITH datetime(slotStr) AS slotStart ... MATCH (b:Business {business_id: $businessId}) MATCH (s:Service {service_id: $serviceId}) ... WITH b, s, slotStart, duration({minutes: s.duration_minutes}) AS serviceDuration, slotStart + serviceDuration AS slotEnd MATCH (b)-[:HAS_HOURS]->(bh:BusinessHours) WHERE ... MATCH (b)-[:EMPLOYS]->(st:Staff {staff_id: $requiredStaffId}) WHERE EXISTS { MATCH (st)-[:CAN_PROVIDE]->(s) } AND EXISTS { MATCH (st)-[:HAS_AVAILABILITY]->(sa:StaffAvailability) WHERE ... } AND NOT EXISTS { MATCH (bk:Booking)-[:SERVED_BY]->(st) WHERE ... } WITH b, st, slotStart, slotEnd, serviceDuration MATCH (b)-[:HAS_RESOURCE]->(r:Resource) WHERE r.type = $requiredResourceType AND r.capacity >= $requiredResourceCapacity WITH b, st, slotStart, slotEnd, serviceDuration, collect(r) AS availableResources, count(r) AS totalResourceCount OPTIONAL MATCH (bk:Booking)-[:AT_BUSINESS]->(b) WHERE bk.booking_time < slotEnd AND bk.booking_time + duration({minutes: $durationMinutes}) > slotStart AND NOT EXISTS { MATCH (bk)-[:SERVED_BY]->(st) } WITH slotStart, st.name AS staffName, availableResources, totalResourceCount, count(bk) AS concurrentBookings WHERE concurrentBookings < totalResourceCount WITH slotStart, staffName, [r IN availableResources | {id: r.resource_id, name: r.name, type: r.type, capacity: r.capacity}] AS resourceDetails, totalResourceCount, concurrentBookings, totalResourceCount - concurrentBookings AS availableResourceCount RETURN toString(slotStart) AS availableSlot, staffName, totalResourceCount, concurrentBookings, availableResourceCount, resourceDetails ORDER BY availableSlot`
 
 ## 創建預約 (CreateBooking)
 
 請參考上方提供的 **Neo4j 資料庫 Schema** 和最新的 **NodeTemplate.ts.txt** 模板，開發一個名為 `CreateBooking` 的 n8n 節點。
-- `displayName`: 'Neo4j: Create Booking'
+- `displayName`: 'Neo4j Create Booking'
 - `name`: `neo4jCreateBooking`
 - `description`: '創建一個新的預約記錄並建立必要的關聯。'
 - **參數**:
-    - `customerId` (string, required)
-    - `businessId` (string, required)
-    - `serviceId` (string, required)
-    - `bookingTime` (string, required, ISO8601)
-    - `staffId` (string, optional)
-    - `resourceId` (string, optional) // 新增
-    - `notes` (string, optional)
-- **核心邏輯**: `execute` 方法需先 `MATCH` Customer, Business, Service，可選 `MATCH` Staff, Resource。然後 `CREATE (bk:Booking {booking_id: randomUUID(), booking_time: datetime($bookingTime), status: 'Confirmed', notes: $notes, created_at: datetime()})`。接著 `MERGE` Booking 與 Customer, Business, Service 的關係，如果提供了 staffId/resourceId，則 `MERGE` 與 Staff/Resource 的關係。返回創建的 Booking 節點。
+    - `customerId` (string, required, Description: '進行預約的客戶 ID')
+    - `businessId` (string, required, Description: '預約的商家 ID')
+    - `serviceId` (string, required, Description: '預約的服務 ID')
+    - `bookingTime` (string, required, Description: '預約開始時間 (ISO 8601 格式，需含時區)')
+    - `staffId` (string, optional, Description: '指定服務員工 ID')
+    - `notes` (string, optional, Description: '預約備註')
+- **核心邏輯**: `MATCH (c:Customer {customer_id: $customerId}) MATCH (b:Business {business_id: $businessId}) MATCH (s:Service {service_id: $serviceId}) [OPTIONAL MATCH (st:Staff {staff_id: $staffId})] CREATE (bk:Booking {booking_id: randomUUID(), customer_id: $customerId, business_id: $businessId, service_id: $serviceId, booking_time: datetime($bookingTime), status: 'Confirmed', notes: $notes, created_at: datetime()}) MERGE (c)-[:MAKES]->(bk) MERGE (bk)-[:AT_BUSINESS]->(b) MERGE (bk)-[:FOR_SERVICE]->(s) [OPTIONAL MERGE (bk)-[:SERVED_BY]->(st)] RETURN bk {.*} AS booking` (bookingTime 使用 `toNeo4jDateTimeString` 格式化)
 
 ## 更新預約 (UpdateBooking)
 
 請參考上方提供的 **Neo4j 資料庫 Schema** 和最新的 **NodeTemplate.ts.txt** 模板，開發一個名為 `UpdateBooking` 的 n8n 節點。
-- `displayName`: 'Neo4j: Update Booking'
+- `displayName`: 'Neo4j Update Booking'
 - `name`: `neo4jUpdateBooking`
 - `description`: '根據 booking_id 更新預約資訊（例如狀態、時間、備註）。'
 - **參數**:
-    - `bookingId` (string, required)
-    - `status` (string, optional)
-    - `bookingTime` (string, optional, ISO8601)
-    - `staffId` (string, optional, Description: '新的或更新的 Staff ID (留空以移除)')
-    - `resourceId` (string, optional, Description: '新的或更新的 Resource ID (留空以移除)') // 新增
-    - `notes` (string, optional)
-- **核心邏輯**: `execute` 方法應 `MATCH (bk:Booking {booking_id: $bookingId})`，使用 `SET` 更新提供的基本屬性及 `bk.updated_at = datetime()`。如果提供了 `staffId`/`resourceId`，需要額外處理 `SERVED_BY`/`RESERVES_RESOURCE` 關係（先刪除舊關係再創建新關係）。返回更新後的 Booking 節點。
+    - `bookingId` (string, required, Description: '要更新的預約 ID')
+    - `bookingTime` (string, optional, Description: '新的預約開始時間 (ISO 8601 格式, 需含時區)')
+    - `status` (string, optional, Description: '新的預約狀態 (例如 Confirmed, Cancelled, Completed)')
+    - `staffId` (string, optional, Description: '更新服務員工 ID (留空以移除)')
+    - `notes` (string, optional, Description: '新的預約備註')
+- **核心邏輯**: `MATCH (bk:Booking {booking_id: $bookingId}) [SET [動態更新提供的參數], bk.updated_at = datetime()] [WITH bk OPTIONAL MATCH (bk)-[r:SERVED_BY]->() DELETE r] [WITH bk MATCH (st:Staff {staff_id: $staffId}) MERGE (bk)-[:SERVED_BY]->(st)] RETURN bk {.*} AS booking` (bookingTime 使用 `toNeo4jDateTimeString` 格式化)
 
 ## 刪除預約 (DeleteBooking)
 
@@ -650,6 +723,27 @@
 - **參數**:
     - `bookingId` (string, required)
 - **核心邏輯**: `execute` 方法應 `MATCH (bk:Booking {booking_id: $bookingId}) DETACH DELETE bk`。
+
+**--- Business Verification ---**
+
+## 驗證商家設置 (VerifyBusinessSetup)
+
+請參考上方提供的 **Neo4j 資料庫 Schema** 和最新的 **NodeTemplate.ts.txt** 模板，開發一個名為 `VerifyBusinessSetup` 的 n8n 節點。
+- `displayName`: 'Neo4j Verify Business Setup'
+- `name`: `neo4jVerifyBusinessSetup`
+- `description`: '檢查商家是否已完成所有必要設置，能夠開始接受預約'
+- **參數**:
+    - `businessId` (string, required, Description: '要檢查設置的商家 ID')
+- **核心邏輯**:
+    1. 查詢商家基本資料 (`MATCH (b:Business {business_id: $businessId}) RETURN b {.*}`)。
+    2. 檢查基本資料完整性 (name, phone, email, address, booking_mode)。
+    3. 查詢營業時間 (`MATCH (b)-[:HAS_HOURS]->(bh) RETURN bh {...}`) 並檢查是否已設定及完整。
+    4. 查詢服務項目 (`MATCH (b)-[:OFFERS]->(s) RETURN s {.*}`) 並檢查是否存在及完整性 (如 duration_minutes)。
+    5. 根據 `booking_mode` 執行額外檢查：
+        - **StaffOnly/StaffAndResource**: 查詢員工 (`MATCH (b)-[:EMPLOYS]->(st) OPTIONAL MATCH (st)-[:CAN_PROVIDE]->(s) OPTIONAL MATCH (st)-[:HAS_AVAILABILITY]->(sa) RETURN st {.*}, count(s), count(sa)`) 並檢查是否存在、是否關聯服務、是否設定可用時間。
+        - **ResourceOnly/StaffAndResource**: 查詢資源 (`MATCH (b)-[:HAS_RESOURCE]->(r) RETURN r {.*}`) 並檢查是否存在及完整性 (如 type, capacity)。
+    6. 根據檢查結果匯總 `overallStatus` ('ready' 或 'incomplete') 和 `recommendations`。
+    7. 返回包含所有檢查結果的 JSON 對象。
 
 ## 重要開發注意事項
 
@@ -692,7 +786,7 @@
 - `compareTimeOnly`: 比較兩個時間值 (僅時間部分)
 - `isTimeInRange`: 檢查時間是否在特定範圍內
 - `addMinutesToDateTime`: 在日期時間上添加分鐘數
-- `getDayOfWeek`: 獲取指定日期是星期幾 (1-7)
+- `getIsoWeekday`: 獲取指定日期是星期幾 (1-7 for ISO, 0-6 for Neo4j internal)
 - `generateTimeSlots`: 生成指定範圍內的時間槽
 - `generateTimeSlotsWithBusinessHours`: 生成考慮業務營業時間的時間槽
 
@@ -714,9 +808,9 @@
 // 良好示例：使用參數化查詢和適當的類型轉換
 MATCH (b:Business {business_id: $businessId})
 CREATE (bh:BusinessHours {
-  day_of_week: 1,
-  start_time: time($startTime),  // 使用 $startTime 參數
-  end_time: time($endTime),      // 使用 $endTime 參數
+  day_of_week: $dayOfWeek, // 傳入 Neo4j Integer
+  start_time: time($startTime),  // 使用 $startTime 參數 (HH:MM:SS 格式)
+  end_time: time($endTime),      // 使用 $endTime 參數 (HH:MM:SS 格式)
   created_at: datetime()         // 使用 Neo4j 內建函數
 })
 CREATE (b)-[:HAS_HOURS]->(bh)
@@ -726,30 +820,34 @@ CREATE (b)-[:HAS_HOURS]->(bh)
 
 ```typescript
 // 良好示例：使用 timeUtils 函數
-import { toNeo4jTimeString, normalizeDateTime } from '../neo4j/helpers/timeUtils';
+import { toNeo4jTimeString, normalizeTimeOnly, toNeo4jDateTimeString } from '../neo4j/helpers/timeUtils';
 
-// 處理輸入參數
-const startTimeParam = toNeo4jTimeString(this.getNodeParameter('startTime', i));
-const endTimeParam = toNeo4jTimeString(this.getNodeParameter('endTime', i));
+// 處理時間輸入參數
+const rawStartTime = this.getNodeParameter('startTime', i);
+const startTime = normalizeTimeOnly(rawStartTime); // 確保格式
+const neoStartTime = toNeo4jTimeString(startTime); // 轉換為 Neo4j 格式
+
+// 處理日期時間輸入參數
+const rawBookingTime = this.getNodeParameter('bookingTime', i);
+const neoBookingTime = toNeo4jDateTimeString(rawBookingTime); // 轉換為 Neo4j 格式
 
 // 執行查詢
 const query = `
-  MATCH (b:Business {business_id: $businessId})
-  CREATE (bh:BusinessHours {
+  MATCH (st:Staff {staff_id: $staffId})
+  CREATE (st)-[:HAS_AVAILABILITY]->(sa:StaffAvailability {
     day_of_week: $dayOfWeek,
     start_time: time($startTime),
     end_time: time($endTime),
     created_at: datetime()
   })
-  CREATE (b)-[:HAS_HOURS]->(bh)
-  RETURN bh
+  RETURN sa
 `;
 
 const parameters = {
-  businessId,
-  dayOfWeek,
-  startTime: startTimeParam,
-  endTime: endTimeParam
+  staffId,
+  dayOfWeek: neo4j.int(dayOfWeek), // 確保是 Neo4j Integer
+  startTime: neoStartTime,
+  endTime: neoEndTime
 };
 
 // 執行查詢
@@ -760,22 +858,28 @@ const results = await runCypherQuery.call(this, session, query, parameters, true
 
 ```typescript
 // 良好示例：正確處理返回的時間值
-import { normalizeDateTime } from '../neo4j/helpers/timeUtils';
+import { normalizeDateTime, normalizeTimeOnly } from '../neo4j/helpers/timeUtils';
+import { convertNeo4jValueToJs } from '../neo4j/helpers/utils';
 
 // 在結果中處理日期時間
-const bookingTime = normalizeDateTime(record.get('booking_time'));
+const bookingTimeRaw = record.get('booking_time'); // Neo4j DateTime object
+const bookingTimeISO = normalizeDateTime(convertNeo4jValueToJs(bookingTimeRaw)); // 轉換為 ISO 字符串
+
+// 在結果中處理時間
+const startTimeRaw = record.get('start_time'); // Neo4j Time object
+const startTimeString = normalizeTimeOnly(convertNeo4jValueToJs(startTimeRaw)); // 轉換為 HH:MM:SS 字符串
 ```
 
 ## 常見錯誤和避免方法
 
 1. **直接比較不同格式時間**：
-   - ❌ 錯誤: `bh.start_time <= time(slotStart)`
-   - ✅ 正確: `time(toString(bh.start_time)) <= time(toString(slotStart))`
+   - ❌ 錯誤: `bh.start_time <= time(slotStart)` (如果 bh.start_time 不是 time 類型)
+   - ✅ 正確: `time(toString(bh.start_time)) <= time(toString(slotStart))` (在 Cypher 中轉換為 time) 或在 TS 中使用 `compareTimeOnly`
 
 2. **忽略時區處理**：
-   - ❌ 錯誤: `booking_time: new Date(bookingTime).toISOString()`
-   - ✅ 正確: `booking_time: datetime(toNeo4jDateTimeString(bookingTime))`
+   - ❌ 錯誤: `booking_time: new Date(bookingTime).toISOString()` (可能丟失原始時區或產生錯誤 UTC)
+   - ✅ 正確: `booking_time: datetime(toNeo4jDateTimeString(bookingTime))` (使用工具函數確保 UTC)
 
 3. **字符串拼接或處理日期時間**：
    - ❌ 錯誤: `startTime.split('T')[1].split('.')[0]`
-   - ✅ 正確: `normalizeTimeOnly(startTime)`
+   - ✅ 正確: `normalizeTimeOnly(startTime)` (使用工具函數)

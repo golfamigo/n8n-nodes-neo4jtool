@@ -20,7 +20,9 @@
     *   [Service Operations](#service-operations)
     *   [Customer Operations](#customer-operations)
     *   [Staff Operations](#staff-operations)
+    *   [Staff Availability Operations](#staff-availability-operations)
     *   [Booking & Availability Operations](#booking--availability-operations)
+    *   [Business Verification](#business-verification)
 *   [典型工作流程範例](#典型工作流程範例)
     *   [範例 1：新用戶首次預約餐廳 (ResourceOnly)](#範例-1新用戶首次預約餐廳-resourceonly)
     *   [範例 2：現有客戶預約理髮 (StaffAndResource)](#範例-2現有客戶預約理髮-staffandresource)
@@ -61,7 +63,6 @@
 *   **Resource:** 代表可預約的實體資源（例如桌位、座位）。
 *   **StaffAvailability:** 記錄員工的常規可用時間。
 *   **BusinessHours:** 記錄商家的結構化營業時間。
-*   **Category:** 服務的分類。
 *   (其他輔助節點如 Payment, MembershipLevel 等)
 
 ### Resource 節點
@@ -78,7 +79,7 @@
 
 ### Business.booking\_mode
 
-`Business` 節點上的 `booking_mode` 屬性決定了在查找可用時段 (`FindAvailableSlots`) 時需要執行的檢查邏輯：
+`Business` 節點上的 `booking_mode` 屬性決定了在查找可用時段時需要執行的檢查邏輯：
 
 *   **`ResourceOnly`**: 只檢查資源是否可用。適用於餐廳訂位等場景。
 *   **`StaffOnly`**: 只檢查員工是否有空且能提供服務。適用於線上諮詢等場景。
@@ -91,13 +92,13 @@
 
 *   **屬性:**
     *   `business_id`: (STRING) 關聯的商家 ID。
-    *   `day_of_week`: (INTEGER) 星期幾 (1=週一, ..., 7=週日)。
+    *   `day_of_week`: (INTEGER) 星期幾 (0=週日, ..., 6=週六)。
     *   `start_time`: (TIME) 當天開始營業時間 (UTC)。
     *   `end_time`: (TIME) 當天結束營業時間 (UTC)。
 *   **關係:**
     *   `(:Business)-[:HAS_HOURS]->(:BusinessHours)`
 
-使用結構化 `BusinessHours` 可以讓 `FindAvailableSlots` 節點更準確地根據營業時間過濾可用時段。
+使用結構化 `BusinessHours` 可以讓查找可用時段的節點更準確地根據營業時間過濾可用時段。
 
 ## 節點使用說明
 
@@ -120,17 +121,17 @@
 
 ### Business Operations
 
-*   **Neo4j: Create Business (`neo4jCreateBusiness`)**
+*   **Neo4j Create Business (`neo4jCreateBusiness`)**
     *   **功能:** 創建新的商家記錄並關聯所有者。**注意:** 營業時間需通過 `SetBusinessHours` 單獨設置。
-    *   **參數:** `ownerUserId` (必填), `name` (必填), `type` (必填), `address` (必填), `phone` (必填), `email` (必填), `description` (必填), `booking_mode` (必填, 選項)。
+    *   **參數:** `ownerUserId` (必填), `name` (必填), `type` (必填), `address` (必填), `phone` (必填), `email` (必填), `description` (必填), `booking_mode` (必填, 選項: ResourceOnly, StaffOnly, StaffAndResource, TimeOnly)。
     *   **輸出:** 新創建的 Business 節點屬性 (包含 `business_id`)。
 *   **Neo4j: Find Business by Name (`neo4jFindBusinessByName`)**
     *   **功能:** 根據名稱模糊查找商家。*注意：由於名稱可能重複，建議優先使用其他唯一標識符查找商家。AI Agent 需處理可能的多個結果。*
     *   **參數:** `searchTerm` (必填)。
     *   **輸出:** 匹配的 Business 節點屬性列表。
-*   **Neo4j: Update Business (`neo4jUpdateBusiness`)**
+*   **Neo4j Update Business (`neo4jUpdateBusiness`)**
     *   **功能:** 根據 `businessId` 更新商家資訊（支持部分更新）。**注意:** 營業時間需通過 `SetBusinessHours` 或 `DeleteBusinessHours` 單獨管理。
-    *   **參數:** `businessId` (必填), `name` (可選), `type` (可選), `address` (可選), `phone` (可選), `email` (可選), `description` (可選), `booking_mode` (可選, 選項)。
+    *   **參數:** `businessId` (必填), `name` (可選), `type` (可選), `address` (可選), `phone` (可選), `email` (可選), `description` (可選), `booking_mode` (可選, 選項: ResourceOnly, StaffOnly, StaffAndResource, TimeOnly)。
     *   **輸出:** 更新後的 Business 節點屬性。
 *   **Neo4j: Delete Business (`neo4jDeleteBusiness`)**
     *   **功能:** 根據 `businessId` 刪除商家及其所有關聯關係 (包括營業時間、資源、服務、客戶、員工、預約等，請謹慎!)。
@@ -143,14 +144,14 @@
 
 ### Business Hours Operations
 
-*   **Neo4j: Set Business Hours (`neo4jSetBusinessHours`)**
+*   **Neo4j Set Business Hours (`neo4jSetBusinessHours`)**
     *   **功能:** 設定或更新指定商家的營業時間 (會**覆蓋**該商家所有舊的營業時間設定)。
-    *   **參數:** `businessId` (必填), `hoursData` (必填, JSON 陣列格式 `[{"day_of_week": 1, "start_time": "HH:MM", "end_time": "HH:MM"}, ...]` (時間應為 UTC))。
-    *   **輸出:** 成功訊息 `{ "success": true, "businessId": "...", "hoursSetCount": ... }`。
-*   **Neo4j: Get Business Hours (`neo4jGetBusinessHours`)**
+    *   **參數:** `businessId` (必填), `hoursData` (必填, JSON 陣列格式 `[{"day_of_week": 0-6, "start_time": "HH:MM", "end_time": "HH:MM"}, ...]` (時間應為 UTC))。
+    *   **輸出:** 成功訊息 `{ "success": true, "businessId": "...", "deletedCount": ..., "hoursSetCount": ... }`。
+*   **Neo4j Get Business Hours (`neo4jGetBusinessHours`)**
     *   **功能:** 獲取指定商家的營業時間列表。
     *   **參數:** `businessId` (必填)。
-    *   **輸出:** 營業時間物件列表 `[{ "day_of_week": 1, "start_time": "HH:MM", "end_time": "HH:MM" }, ...]` (時間為 UTC)。
+    *   **輸出:** 營業時間物件列表 `[{ "day_of_week": 0-6, "start_time": "HH:MM", "end_time": "HH:MM" }, ...]` (時間為 UTC)。
 *   **Neo4j: Delete Business Hours (`neo4jDeleteBusinessHours`)**
     *   **功能:** 刪除指定商家的所有營業時間記錄。
     *   **參數:** `businessId` (必填)。
@@ -158,11 +159,11 @@
 
 ### Resource Operations
 
-*   **Neo4j: Create Resource (`neo4jCreateResource`)**
+*   **Neo4j Create Resource (`neo4jCreateResource`)**
     *   **功能:** 創建新的資源記錄並關聯到商家。
     *   **參數:** `businessId` (必填), `type` (必填), `name` (必填), `capacity` (可選), `propertiesJson` (可選, JSON 字串)。
     *   **輸出:** 新創建的 Resource 節點屬性 (properties 將是 JSON 字串, 包含 `resource_id`)。
-*   **Neo4j: Update Resource (`neo4jUpdateResource`)**
+*   **Neo4j Update Resource (`neo4jUpdateResource`)**
     *   **功能:** 根據 `resourceId` 更新資源資訊（支持部分更新）。
     *   **參數:** `resourceId` (必填), `type` (可選), `name` (可選), `capacity` (可選), `propertiesJson` (可選, JSON 字串)。
     *   **輸出:** 更新後的 Resource 節點屬性 (properties 將是 JSON 字串)。
@@ -179,11 +180,11 @@
 
 *   **Neo4j: Create Service (`neo4jCreateService`)**
     *   **功能:** 為指定商家創建新的服務項目。
-    *   **參數:** `businessId` (必填), `name` (必填), `duration_minutes` (必填), `description` (必填), `price` (可選), `categoryId` (可選)。
+    *   **參數:** `businessId` (必填), `name` (必填), `duration_minutes` (必填), `description` (必填), `price` (可選)。
     *   **輸出:** 新創建的 Service 節點屬性 (包含 `service_id`)。
 *   **Neo4j: Update Service (`neo4jUpdateService`)**
     *   **功能:** 根據 `serviceId` 更新服務資訊（支持部分更新）。
-    *   **參數:** `serviceId` (必填), `name` (可選), `duration_minutes` (可選), `description` (可選), `price` (可選), `categoryId` (可選, 留空以移除關係)。
+    *   **參數:** `serviceId` (必填), `name` (可選), `duration_minutes` (可選), `description` (可選), `price` (可選)。
     *   **輸出:** 更新後的 Service 節點屬性。
 *   **Neo4j: Delete Service (`neo4jDeleteService`)**
     *   **功能:** 根據 `serviceId` 刪除服務及其關聯關係。
@@ -213,11 +214,11 @@
 
 *   **Neo4j: Create Staff (`neo4jCreateStaff`)**
     *   **功能:** 為指定商家創建新的員工記錄。**注意:** 員工需後續通過流程與 User 帳號關聯。
-    *   **參數:** `businessId` (必填), `name` (必填), `email` (可選), `phone` (可選)。
+    *   **參數:** `businessId` (必填), `name` (必填), `email` (可選)。
     *   **輸出:** 新創建的 Staff 節點屬性 (包含 `staff_id`)。
 *   **Neo4j: Update Staff (`neo4jUpdateStaff`)**
     *   **功能:** 根據 `staffId` 更新員工資訊（支持部分更新）。
-    *   **參數:** `staffId` (必填), `name` (可選), `email` (可選), `phone` (可選)。
+    *   **參數:** `staffId` (必填), `name` (可選), `email` (可選)。
     *   **輸出:** 更新後的 Staff 節點屬性。
 *   **Neo4j: Delete Staff (`neo4jDeleteStaff`)**
     *   **功能:** 根據 `staffId` 刪除員工及其關聯關係 (例如可用性、服務能力)。
@@ -233,31 +234,53 @@
     *   **輸出:** 成功訊息 `{ "success": true, "staffId": "...", "serviceId": "..." }`。
 *   **Neo4j: Find Staff by External ID (`neo4jFindStaffByExternalId`)**
     *   **功能:** 根據用戶 External ID 查找關聯的員工記錄。假設員工已完成報到並關聯 User。
-    *   **參數:** `externalId` (必填), `businessId` (可選)。
+    *   **參數:** `externalId` (必填)。
     *   **輸出:** 匹配的 Staff 節點列表。
-*   **Neo4j: Set Staff Availability (`neo4jSetStaffAvailability`)**
+
+### Staff Availability Operations
+
+*   **Neo4j Set Staff Availability (`neo4jSetStaffAvailability`)**
     *   **功能:** 設定或更新指定員工在特定星期幾的可用起訖時間。會覆蓋當天舊設定。
-    *   **參數:** `staffId` (必填), `dayOfWeek` (必填, 1=Mon, 7=Sun), `startTime` (必填, HH:MM, UTC), `endTime` (必填, HH:MM, UTC)。
+    *   **參數:** `staffId` (必填), `dayOfWeek` (必填, 0=Sun, 6=Sat), `startTime` (必填, HH:MM, UTC), `endTime` (必填, HH:MM, UTC)。
     *   **輸出:** 更新後的 StaffAvailability 記錄 (時間為 HH:MM UTC)。
 
 ### Booking & Availability Operations
 
-*   **Neo4j: Find Available Slots (`neo4jFindAvailableSlots`)**
-    *   **功能:** 根據商家的 `booking_mode` 和結構化的 `BusinessHours` 查找可用的預約時間段。
-    *   **參數:** `businessId` (必填), `serviceId` (必填), `startDateTime` (必填, ISO8601 含時區), `endDateTime` (必填, ISO8601 含時區), `intervalMinutes` (可選, 預設 15), `requiredResourceType` (可選), `requiredResourceCapacity` (可選), `requiredStaffId` (可選)。
+*   **Neo4j Find Available Slots TimeOnly (`neo4jFindAvailableSlotsTimeOnly`)**
+    *   **功能:** 根據時間查找可用的預約時間段 (僅考慮時間衝突)。
+    *   **參數:** `businessId` (必填), `serviceId` (必填), `startDateTime` (必填, ISO8601 含時區), `endDateTime` (必填, ISO8601 含時區), `intervalMinutes` (可選, 預設 15)。
     *   **輸出:** 可用預約起始時間的列表 (UTC ISO 8601 格式)，例如 `[{ "availableSlot": "2025-04-16T02:00:00Z" }, ...]`。
-*   **Neo4j: Create Booking (`neo4jCreateBooking`)**
-    *   **功能:** 創建新的預約記錄並建立關聯。**前提:** Customer, Business, Service (及可選的 Staff, Resource) 必須已存在。AI Agent/工作流程需負責在調用此節點前確保 Customer 存在或創建 Customer。
-    *   **參數:** `customerId` (必填), `businessId` (必填), `serviceId` (必填), `bookingTime` (必填, ISO8601 含時區), `staffId` (可選), `resourceId` (可選), `notes` (可選)。
+*   **Neo4j Find Available Slots StaffOnly (`neo4jFindAvailableSlotsStaffOnly`)**
+    *   **功能:** 根據時間和員工可用性查找可用的預約時間段。
+    *   **參數:** `businessId` (必填), `serviceId` (必填), `startDateTime` (必填, ISO8601 含時區), `endDateTime` (必填, ISO8601 含時區), `intervalMinutes` (可選, 預設 15), `requiredStaffId` (必填)。
+    *   **輸出:** 可用預約起始時間的列表 (UTC ISO 8601 格式)。
+*   **Neo4j Find Available Slots ResourceOnly (`neo4jFindAvailableSlotsResourceOnly`)**
+    *   **功能:** 根據時間和資源可用性查找可用的預約時間段。
+    *   **參數:** `businessId` (必填), `serviceId` (必填), `startDateTime` (必填, ISO8601 含時區), `endDateTime` (必填, ISO8601 含時區), `intervalMinutes` (可選, 預設 15), `requiredResourceType` (必填), `requiredResourceCapacity` (可選, 預設 1)。
+    *   **輸出:** 可用預約起始時間的列表 (UTC ISO 8601 格式)。
+*   **Neo4j Find Available Slots StaffAndResource (`neo4jFindAvailableSlotsStaffAndResource`)**
+    *   **功能:** 根據時間、員工和資源可用性查找可用的預約時間段。
+    *   **參數:** `businessId` (必填), `serviceId` (必填), `startDateTime` (必填, ISO8601 含時區), `endDateTime` (必填, ISO8601 含時區), `intervalMinutes` (可選, 預設 15), `requiredStaffId` (必填), `requiredResourceType` (必填), `requiredResourceCapacity` (可選, 預設 1)。
+    *   **輸出:** 可用預約起始時間的列表 (UTC ISO 8601 格式)。
+*   **Neo4j Create Booking (`neo4jCreateBooking`)**
+    *   **功能:** 創建新的預約記錄並建立關聯。**前提:** Customer, Business, Service (及可選的 Staff) 必須已存在。AI Agent/工作流程需負責在調用此節點前確保 Customer 存在或創建 Customer。
+    *   **參數:** `customerId` (必填), `businessId` (必填), `serviceId` (必填), `bookingTime` (必填, ISO8601 含時區), `staffId` (可選), `notes` (可選)。
     *   **輸出:** 新創建的 Booking 節點屬性 (包含 `booking_id`)。
-*   **Neo4j: Update Booking (`neo4jUpdateBooking`)**
+*   **Neo4j Update Booking (`neo4jUpdateBooking`)**
     *   **功能:** 根據 `bookingId` 更新預約資訊（支持部分更新）。
-    *   **參數:** `bookingId` (必填), `bookingTime` (可選, ISO8601 含時區), `status` (可選), `staffId` (可選, 留空以移除關係), `resourceId` (可選, 留空以移除關係), `notes` (可選)。
+    *   **參數:** `bookingId` (必填), `bookingTime` (可選, ISO8601 含時區), `status` (可選), `staffId` (可選, 留空以移除關係), `notes` (可選)。
     *   **輸出:** 更新後的 Booking 節點屬性。
 *   **Neo4j: Delete Booking (`neo4jDeleteBooking`)**
     *   **功能:** 根據 `bookingId` 刪除預約及其關聯關係。
     *   **參數:** `bookingId` (必填)。
     *   **輸出:** 成功訊息 `{ "success": true, "deletedBookingId": "..." }`。
+
+### Business Verification
+
+*   **Neo4j Verify Business Setup (`neo4jVerifyBusinessSetup`)**
+    *   **功能:** 檢查商家是否已完成所有必要設置，能夠開始接受預約。
+    *   **參數:** `businessId` (必填)。
+    *   **輸出:** 包含詳細檢查結果的 JSON 對象，包括 `overallStatus` ('ready' 或 'incomplete') 和 `recommendations`。
 
 ## 典型工作流程範例
 
@@ -273,10 +296,9 @@
 8.  **(Get `customerId`)** 從步驟 6 或 7 獲取客戶 `customerId`。
 9.  **(假設已知服務 `serviceId`)**
 10. **`ListResourceTypes`**: (可選) 查詢餐廳有哪些資源類型 (例如 'Table')。
-11. **`FindAvailableSlots`**: 提供 `businessId`, `serviceId`, 時間範圍 (ISO8601 含時區), `requiredResourceType='Table'`, (可選) `requiredResourceCapacity`。
+11. **`FindAvailableSlotsResourceOnly`**: 提供 `businessId`, `serviceId`, 時間範圍 (ISO8601 含時區), `requiredResourceType='Table'`, (可選) `requiredResourceCapacity`。
 12. **(用戶/AI 選擇時段)** 從返回結果中選擇一個 `availableSlot` (UTC ISO8601)。
-13. **(可選) 查找可用資源 ID:** 如果需要指定特定桌號，可能需要額外步驟查找符合條件且在該時段可用的 `resourceId`。
-14. **`CreateBooking`**: 提供 `customerId`, `businessId`, `serviceId`, `chosenSlot` (UTC ISO8601), (可選) `resourceId`。
+13. **`CreateBooking`**: 提供 `customerId`, `businessId`, `serviceId`, `chosenSlot` (UTC ISO8601)。
 
 ### 範例 2：現有客戶預約理髮 (StaffAndResource)
 
@@ -285,10 +307,10 @@
 3.  **(假設已知沙龍 `businessId`)**
 4.  **`FindCustomerByExternalIdAndBusinessId`**: 找到客戶 `customerId`。
 5.  **(假設已知服務 `serviceId`)**
-6.  **`FindAvailableSlots`**: 提供 `businessId`, `serviceId`, 時間範圍 (ISO8601 含時區), `requiredResourceType='Seat'`, (可選) `requiredStaffId`。
-7.  **(用戶/AI 選擇時段)**
-8.  **(可能需要查找可用 `resourceId` 和 `staffId`)**
-9.  **`CreateBooking`**: 提供 `customerId`, `businessId`, `serviceId`, `chosenSlot` (UTC ISO8601), `staffId`, `resourceId`。
+6.  **(假設已知員工 `staffId` 和資源類型 `resourceType='Seat'`)**
+7.  **`FindAvailableSlotsStaffAndResource`**: 提供 `businessId`, `serviceId`, 時間範圍 (ISO8601 含時區), `requiredStaffId`, `requiredResourceType`。
+8.  **(用戶/AI 選擇時段)**
+9.  **`CreateBooking`**: 提供 `customerId`, `businessId`, `serviceId`, `chosenSlot` (UTC ISO8601), `staffId`。
 
 ### 範例 3：預約線上諮詢 (StaffOnly)
 
@@ -297,9 +319,9 @@
 3.  **(假設已知諮詢公司 `businessId`)**
 4.  **`FindCustomerByExternalIdAndBusinessId`**: 找到客戶 `customerId`。
 5.  **(假設已知服務 `serviceId`)**
-6.  **`FindAvailableSlots`**: 提供 `businessId`, `serviceId`, 時間範圍 (ISO8601 含時區), (可選) `requiredStaffId`。
-7.  **(用戶/AI 選擇時段)**
-8.  **(可能需要查找可用 `staffId`)**
+6.  **(假設已知員工 `staffId`)**
+7.  **`FindAvailableSlotsStaffOnly`**: 提供 `businessId`, `serviceId`, 時間範圍 (ISO8601 含時區), `requiredStaffId`。
+8.  **(用戶/AI 選擇時段)**
 9.  **`CreateBooking`**: 提供 `customerId`, `businessId`, `serviceId`, `chosenSlot` (UTC ISO8601), `staffId`。
 
 ### 範例 4：修改預約時間或狀態
@@ -327,7 +349,7 @@
 *   **"Cannot read properties of null (reading 'low')" / 類型錯誤:** 常常發生在嘗試處理 Neo4j 特殊類型（如 Integer）或錯誤物件時。檢查 `neo4j.int()` 的使用（確保輸入非 null/undefined），以及錯誤處理函數 (`parseNeo4jError`) 是否能正確處理各種錯誤情況。
 *   **Cypher 語法錯誤:** 直接在 Neo4j Browser 中測試節點內的 Cypher 查詢是個好方法。注意 `WITH` 子句在寫操作後繼續讀取/匹配時的必要性。
 *   **節點未按預期創建/更新數據 (無錯誤):** 檢查 Cypher 查詢邏輯是否正確，參數是否正確傳遞（可添加日誌調試），以及是否存在未預期的資料庫約束或條件導致操作被靜默阻止。
-*   **`FindAvailableSlots` 結果不準確:** 檢查 Cypher 查詢中時間比較、`booking_mode` 判斷、資源/員工匹配邏輯是否正確。`StaffAvailability` 和 `BusinessHours` 的時間範圍比較尤其需要注意（確保都在 UTC 基準下比較）。確保 `generatePotentialSlots` 函數（在節點內部）的邏輯正確。
+*   **`FindAvailableSlots...` 結果不準確:** 檢查對應模式的 Cypher 查詢中時間比較、資源/員工匹配邏輯是否正確。`StaffAvailability` 和 `BusinessHours` 的時間範圍比較尤其需要注意（確保都在 UTC 基準下比較）。確保 `generateTimeSlotsWithBusinessHours` 函數（在節點內部）的邏輯正確。
 
 ## 兼容性
 
