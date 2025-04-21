@@ -1,6 +1,6 @@
 {
   "name": "n8n-nodes-neo4jtool",
-  "version": "0.1.82",
+  "version": "0.1.83",
   "description": "a Neo4j node for n8n workflows",
   "keywords": [
     "n8n-community-node-package",
@@ -68,6 +68,7 @@
       "dist/nodes/Neo4jFindAvailableSlotsTimeOnly/Neo4jFindAvailableSlotsTimeOnly.node.js",
       "dist/nodes/Neo4jFindAvailableSlotsStaffOnly/Neo4jFindAvailableSlotsStaffOnly.node.js",
       "dist/nodes/Neo4jFindAvailableSlotsResourceOnly/Neo4jFindAvailableSlotsResourceOnly.node.js",
+      "dist/nodes/Neo4jFindAvailableSlotsStaffAndResource/Neo4jFindAvailableSlotsStaffAndResource.node.js",
       "dist/nodes/Neo4jSetBusinessHours/Neo4jSetBusinessHours.node.js",
       "dist/nodes/Neo4jGetBusinessHours/Neo4jGetBusinessHours.node.js",
       "dist/nodes/Neo4jDeleteBusinessHours/Neo4jDeleteBusinessHours.node.js",
