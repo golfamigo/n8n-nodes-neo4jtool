@@ -336,7 +336,7 @@ export class Neo4jFindAvailableSlotsStaffAndResource implements INodeType {
 					AND time(bh.start_time) <= time(slotStart)
 					AND time(bh.end_time) >= time(slotEnd)
 
-				WITH b, s, slotStart, slotEnd, serviceDuration, slotDate, slotDayOfWeek
+				WITH b, s, slotStart, slotEnd, durationMinutesVal, serviceDuration, slotDate, slotDayOfWeek
 
 				// 檢查指定員工的可用性
 				MATCH (b)-[:EMPLOYS]->(st:Staff {staff_id: $requiredStaffId})

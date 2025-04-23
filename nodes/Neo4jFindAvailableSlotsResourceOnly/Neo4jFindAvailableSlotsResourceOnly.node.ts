@@ -364,7 +364,7 @@ export class Neo4jFindAvailableSlotsResourceOnly implements INodeType {
 							AND time(bh.start_time) <= time(slotStart)
 							AND time(bh.end_time) >= time(slotEnd)
 
-					WITH b, s, slotStart, slotEnd, serviceDuration, toString(slotStart) AS slotStartStr
+					WITH b, s, slotStart, slotEnd, serviceDuration, toString(slotStart) AS slotStartStr // Removed durationMinutesVal here as it's not needed before calling the helper
 
 					${generateResourceAvailabilityQuery(
 							'$requiredResourceType',
