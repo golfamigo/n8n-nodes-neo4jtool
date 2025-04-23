@@ -327,8 +327,8 @@ export class Neo4jFindAvailableSlotsStaffAndResource implements INodeType {
 				// 獲取商家、服務、時長
 				MATCH (b:Business {business_id: $businessId})
 				MATCH (s:Service {service_id: $serviceId})<-[:OFFERS]-(b)
-				WITH b, s, slotStart, duration({minutes: s.duration_minutes}) AS serviceDuration
-				WITH b, s, slotStart, serviceDuration, slotStart + serviceDuration AS slotEnd, date(slotStart) AS slotDate, date(slotStart).dayOfWeek AS slotDayOfWeek
+				WITH b, s, slotStart, s.duration_minutes AS durationMinutesVal, duration({minutes: s.duration_minutes}) AS serviceDuration // Added durationMinutesVal
+				WITH b, s, slotStart, durationMinutesVal, serviceDuration, slotStart + serviceDuration AS slotEnd, date(slotStart) AS slotDate, date(slotStart).dayOfWeek AS slotDayOfWeek // Added durationMinutesVal
 
 				// 檢查商家營業時間
 				MATCH (b)-[:HAS_HOURS]->(bh:BusinessHours)
@@ -370,12 +370,12 @@ export class Neo4jFindAvailableSlotsStaffAndResource implements INodeType {
 				}
 
 				// 檢查資源類型可用性
-				WITH b, st, slotStart, slotEnd, serviceDuration, toString(slotStart) AS slotStartStr, st.name AS staffName
+				WITH b, st, slotStart, slotEnd, durationMinutesVal, serviceDuration, toString(slotStart) AS slotStartStr, st.name AS staffName // Added durationMinutesVal
 
 				${generateResourceAvailabilityQuery(
 					'$requiredResourceType',
 					'slotStart',
-					'$durationMinutes',
+					'durationMinutesVal', // Changed from '$durationMinutes'
 					'$requiredResourceCapacity',
 					'$businessId',
 					{
@@ -406,7 +406,7 @@ export class Neo4jFindAvailableSlotsStaffAndResource implements INodeType {
 				requiredStaffId,
 				requiredResourceType,
 				requiredResourceCapacity: neo4j.int(requiredResourceCapacity),
-				durationMinutes: neo4j.int(durationMinutes)
+				// durationMinutes: neo4j.int(durationMinutes) // Removed as it's not directly used in the query with $
 			};
 
 			try {

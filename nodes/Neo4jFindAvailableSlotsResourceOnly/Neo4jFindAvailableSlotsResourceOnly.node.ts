@@ -355,8 +355,8 @@ export class Neo4jFindAvailableSlotsResourceOnly implements INodeType {
 					// 獲取商家、服務、時長
 					MATCH (b:Business {business_id: $businessId})
 					MATCH (s:Service {service_id: $serviceId})<-[:OFFERS]-(b)
-					WITH b, s, slotStart, duration({minutes: s.duration_minutes}) AS serviceDuration
-					WITH b, s, slotStart, serviceDuration, slotStart + serviceDuration AS slotEnd
+					WITH b, s, slotStart, s.duration_minutes AS durationMinutesVal, duration({minutes: s.duration_minutes}) AS serviceDuration // Added durationMinutesVal
+					WITH b, s, slotStart, durationMinutesVal, serviceDuration, slotStart + serviceDuration AS slotEnd // Added durationMinutesVal
 
 					// 檢查商家營業時間 - 強制轉換為 UTC 時間進行比較
 					MATCH (b)-[:HAS_HOURS]->(bh:BusinessHours)
@@ -369,7 +369,7 @@ export class Neo4jFindAvailableSlotsResourceOnly implements INodeType {
 					${generateResourceAvailabilityQuery(
 							'$requiredResourceType',
 							'slotStart',
-							'serviceDuration',  // 修正：使用正確的變數名稱，不需要 $ 前綴
+							'durationMinutesVal', // Changed from 'serviceDuration'
 							'$requiredResourceCapacity',
 							'$businessId',
 							{
@@ -391,7 +391,7 @@ export class Neo4jFindAvailableSlotsResourceOnly implements INodeType {
 					requiredResourceType,
 					requiredResourceCapacity: neo4j.int(requiredResourceCapacity),
 					durationMinutes: neo4j.int(durationMinutes),  // 確保參數中包含durationMinutes
-					serviceDuration: neo4j.int(durationMinutes)  // 添加與查詢中使用的同名參數
+					// Removed redundant serviceDuration parameter
 			};
 
 			// 添加額外的調試日誌
@@ -402,7 +402,7 @@ export class Neo4jFindAvailableSlotsResourceOnly implements INodeType {
 					requiredResourceType,
 					requiredResourceCapacity,
 					durationMinutes,
-					serviceDuration: durationMinutes,
+					// serviceDuration: durationMinutes, // Removed as it's not used directly in params
 					businessHoursCount: businessHours.length,
 					resourceTypeName,
 					totalCapacity
@@ -498,17 +498,15 @@ export class Neo4jFindAvailableSlotsResourceOnly implements INodeType {
 			if (session) {
 				try {
 					await session.close();
-					this.logger.debug('成功關閉 Neo4j 會話');
 				} catch (e) {
-					this.logger.error('關閉 Neo4j 會話時出錯:', e);
+					this.logger.error('Error closing Neo4j session:', e);
 				}
 			}
 			if (driver) {
 				try {
 					await driver.close();
-					this.logger.debug('成功關閉 Neo4j 驅動');
 				} catch (e) {
-					this.logger.error('關閉 Neo4j 驅動時出錯:', e);
+					this.logger.error('Error closing Neo4j driver:', e);
 				}
 			}
 		}

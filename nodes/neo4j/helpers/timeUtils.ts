@@ -470,13 +470,7 @@ export function generateTimeSlotsWithBusinessHours(
           slotCounter++;
         }
         console.log(`[SLOT] Generated ${slotCounter} slots for ${dayStart.toISO()} ~ ${dayEnd.toISO()}`);
-      while (slotTime < dayEnd) {
-        const slotISO = slotTime.toUTC().toISO();
-        if (slotISO) { // 添加空值檢查
-          slots.push(slotISO);
-        }
-        slotTime = slotTime.plus({ minutes: intervalMinutes });
-      }
+      // Removed redundant loop (lines 473-479)
     }
 
     // 移至下一天
@@ -502,31 +496,28 @@ export function isSlotAvailableWithinBusinessHours(
     end_time: any;
   }>
 ): boolean {
-  const slotStart = normalizeDateTime(slot);
-  if (!slotStart) return false;
+  const normalizedSlot = normalizeDateTime(slot);
+  if (!normalizedSlot) return false;
 
-  const dtStart = DateTime.fromISO(slotStart);
-  const dtEnd = dtStart.plus({ minutes: serviceDurationMinutes });
+  const slotStart = DateTime.fromISO(normalizedSlot);
+  const slotEnd = slotStart.plus({ minutes: serviceDurationMinutes });
+  const dayOfWeek = slotStart.weekday;
 
-  // 獲取星期幾
-  const dayOfWeek = dtStart.weekday;
-
-  // 檢查是否在營業時間內
   const dayHours = businessHours.filter(bh => bh.day_of_week === dayOfWeek);
 
-  // 如果當天沒有營業時間，不可用
-  if (dayHours.length === 0) return false;
+  if (dayHours.length === 0) {
+    return false; // 當天不營業
+  }
 
-  // 檢查是否有任何一個營業時間段包含整個服務時段
+  // 檢查是否完全落在某個營業時間段內
   return dayHours.some(hours => {
-    const businessStart = normalizeTimeOnly(hours.start_time);
-    const businessEnd = normalizeTimeOnly(hours.end_time);
+    const openTime = normalizeTimeOnly(hours.start_time);
+    const closeTime = normalizeTimeOnly(hours.end_time);
+    const slotStartTime = slotStart.toFormat(TIME_SETTINGS.TIME_FORMAT);
+    const slotEndTime = slotEnd.toFormat(TIME_SETTINGS.TIME_FORMAT);
 
-    if (!businessStart || !businessEnd) return false;
-
-    const slotStartTime = dtStart.toFormat(TIME_SETTINGS.TIME_FORMAT);
-    const slotEndTime = dtEnd.toFormat(TIME_SETTINGS.TIME_FORMAT);
-
-    return businessStart <= slotStartTime && slotEndTime <= businessEnd;
+    return openTime && closeTime &&
+           openTime <= slotStartTime &&
+           slotEndTime <= closeTime;
   });
 }
