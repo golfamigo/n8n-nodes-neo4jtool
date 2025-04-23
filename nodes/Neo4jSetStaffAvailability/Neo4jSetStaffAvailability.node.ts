@@ -129,7 +129,7 @@ export class Neo4jSetStaffAvailability implements INodeType {
 						} else {
 							throw new NodeOperationError(node, 'Availability Data must be a valid JSON array.', {
 								itemIndex: i,
-								description: `Expected format: [{"type": "SCHEDULE", "day_of_week": 1, "start_time": "09:00", "end_time": "17:00"}]. Received: ${availabilityDataRaw}`
+								description: `Expected format: [{"type": "SCHEDULE", "day_of_week": 1, "start_time": "09:00", "end_time": "17:00"}]. Received: ${availabilityDataRaw}. Use start_time and end_time.`
 							});
 						}
 					} catch (error) {
@@ -177,13 +177,14 @@ export class Neo4jSetStaffAvailability implements INodeType {
 							entry.date = dateValue;
 						}
 
-						const startTimeValue = entry.start_time ?? entry.startTime;
-						const endTimeValue = entry.end_time ?? entry.endTime;
+						const startTimeValue = entry.start_time; // Enforce snake_case input
+						const endTimeValue = entry.end_time; // Enforce snake_case input
 						const startTime = normalizeTimeOnly(startTimeValue);
 						const endTime = normalizeTimeOnly(endTimeValue);
 
 						if (!startTime || !endTime) {
-							throw new NodeOperationError(node, `Invalid time format in entry ${entryIndex}. Use "HH:MM" format. Received: start_time="${startTimeValue}", end_time="${endTimeValue}"`, { itemIndex: i });
+							// Corrected line 186: Added comma between template literal and options object
+							throw new NodeOperationError(node, `Invalid time format in entry ${entryIndex}. Use "HH:MM" format. Received: start_time="${startTimeValue}", end_time="${endTimeValue}". Use start_time and end_time.`, { itemIndex: i });
 						}
 
 						// 驗證時間範圍
@@ -394,7 +395,7 @@ export class Neo4jSetStaffAvailability implements INodeType {
 								description: parsedError.description,
 								expectedFormat: {
 									example: '[{"type": "SCHEDULE", "day_of_week": 1, "start_time": "09:00", "end_time": "17:00"}, {"type": "EXCEPTION", "date": "2025-05-01", "reason": "假期", "start_time": "00:00", "end_time": "23:59"}]',
-									notes: 'Use type (SCHEDULE/EXCEPTION), day_of_week (for SCHEDULE) or date (for EXCEPTION), start_time and end_time in HH:MM format.'
+									notes: 'Use type (SCHEDULE/EXCEPTION), day_of_week (for SCHEDULE) or date (for EXCEPTION), start_time and end_time in HH:MM format. Only snake_case is accepted.'
 								}
 							}
 						};

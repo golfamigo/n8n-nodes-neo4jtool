@@ -362,16 +362,16 @@ export function generateTimeSlotsWithBusinessHours(
   if (!normalizedStart || !normalizedEnd || !Array.isArray(businessHours)) {
     return [];
   }
-  
+
   // 如果帶有時區，轉換為 UTC 時間來確保一致性
   const dtStart = DateTime.fromISO(normalizedStart);
   const dtEnd = DateTime.fromISO(normalizedEnd);
-  
+
   // 如果輸入時間帶有時區信息且不是 UTC，轉換為 UTC
   if (dtStart.isValid && dtStart.zoneName !== 'UTC') {
     normalizedStart = dtStart.toUTC().toISO();
   }
-  
+
   if (dtEnd.isValid && dtEnd.zoneName !== 'UTC') {
     normalizedEnd = dtEnd.toUTC().toISO();
   }
@@ -424,7 +424,7 @@ export function generateTimeSlotsWithBusinessHours(
         minute: minuteVal,
         second: 0,
         millisecond: 0
-      });
+      }).setZone('UTC');
 
       hourParts = hours.endTime.split(':');
       hourVal = parseInt(hourParts[0], 10);
@@ -439,11 +439,18 @@ export function generateTimeSlotsWithBusinessHours(
         minute: minuteVal,
         second: 0,
         millisecond: 0
-      });
+      }).setZone('UTC');
 
       // 調整當天的時間範圍
-      const dayStart = DateTime.max(openTime, DateTime.fromISO(normalizedStart));
-      const dayEnd = DateTime.min(closeTime, endDt);
+        // 強制時區一致
+        const openTimeUTC = openTime.setZone('UTC');
+        const closeTimeUTC = closeTime.setZone('UTC');
+        const normalizedStartUTC = DateTime.fromISO(normalizedStart).setZone('UTC');
+        const endDtUTC = endDt.setZone('UTC');
+        let dayStart = DateTime.max(openTimeUTC, normalizedStartUTC);
+        let dayEnd = DateTime.min(closeTimeUTC, endDtUTC);
+        console.log('[SLOT] dayStart:', dayStart.toISO(), 'dayEnd:', dayEnd.toISO());
+
 
       // 如果當天沒有有效時間範圍，跳過
       if (dayStart >= dayEnd) {
@@ -451,7 +458,18 @@ export function generateTimeSlotsWithBusinessHours(
       }
 
       // 生成當天的時間槽
+        let slotCounter = 0;
       let slotTime = dayStart;
+        while (slotTime <= dayEnd) { // 修正為 <= 包含邊界
+          const slotISO = slotTime.setZone('UTC').toISO();
+          if (slotISO) {
+            slots.push(slotISO);
+            console.log('[SLOT] push:', slotISO);
+          }
+          slotTime = slotTime.plus({ minutes: intervalMinutes });
+          slotCounter++;
+        }
+        console.log(`[SLOT] Generated ${slotCounter} slots for ${dayStart.toISO()} ~ ${dayEnd.toISO()}`);
       while (slotTime < dayEnd) {
         const slotISO = slotTime.toUTC().toISO();
         if (slotISO) { // 添加空值檢查
