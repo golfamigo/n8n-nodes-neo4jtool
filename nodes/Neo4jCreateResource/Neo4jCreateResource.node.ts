@@ -162,7 +162,10 @@ export class Neo4jCreateResource implements INodeType {
 							properties: $propertiesJsonString,
 							created_at: datetime()
 						})
+						// 建立向後兼容的關聯
 						MERGE (r)-[:BELONGS_TO]->(b)
+						// 建立向前兼容的關聯
+						MERGE (b)-[:HAS_RESOURCE]->(r)
 						RETURN r {.*} AS resource
 					`;
 					const parameters: IDataObject = {
