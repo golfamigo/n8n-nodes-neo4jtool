@@ -30,6 +30,12 @@ import {
 	TIME_SETTINGS as _TIME_SETTINGS,
 } from '../neo4j/helpers/timeUtils';
 
+// --- Mapping for day names ---
+const dayNameToNumber: { [key: string]: number } = {
+	'monday': 1, 'tuesday': 2, 'wednesday': 3, 'thursday': 4,
+	'friday': 5, 'saturday': 6, 'sunday': 7
+};
+
 // --- Node Class Definition ---
 export class Neo4jSetBusinessHours implements INodeType {
 
@@ -144,13 +150,29 @@ export class Neo4jSetBusinessHours implements INodeType {
 						hoursData = hoursData.map(entry => {
 							// 同時接受蛇形命名法和駝峰命名法
 							const dayOfWeekValue = entry.day_of_week !== undefined ? entry.day_of_week : entry.dayOfWeek;
-							const dayOfWeek = typeof dayOfWeekValue === 'string'
-								? parseInt(dayOfWeekValue, 10)
-								: (dayOfWeekValue || 0);
+							let dayOfWeek: number;
+							if (typeof dayOfWeekValue === 'number') {
+								dayOfWeek = dayOfWeekValue;
+							} else if (typeof dayOfWeekValue === 'string') {
+								const lowerCaseDay = dayOfWeekValue.toLowerCase();
+								if (dayNameToNumber[lowerCaseDay]) {
+									dayOfWeek = dayNameToNumber[lowerCaseDay];
+								} else {
+									// 嘗試解析為數字
+									const parsedInt = parseInt(dayOfWeekValue, 10);
+									if (!isNaN(parsedInt)) {
+										dayOfWeek = parsedInt;
+									} else {
+										throw new NodeOperationError(node, `無效的星期值。必須是 1-7 之間的整數或有效的英文星期名稱 (Monday-Sunday)。收到的值: day_of_week=${dayOfWeekValue}`, { itemIndex: i });
+									}
+								}
+							} else {
+								throw new NodeOperationError(node, `無效的星期值類型。必須是數字或字串。收到的值: day_of_week=${dayOfWeekValue}`, { itemIndex: i });
+							}
 
-							// 如果 day_of_week 範圍不對，報錯
-							if (isNaN(dayOfWeek) || dayOfWeek < 1 || dayOfWeek > 7) {
-								throw new NodeOperationError(node, `無效的星期值。必須是 1-7 之間的整數 (1=星期一, 7=星期日)。收到的值: day_of_week=${dayOfWeekValue}`, { itemIndex: i });
+							// 驗證轉換後的數字範圍
+							if (dayOfWeek < 1 || dayOfWeek > 7) {
+								throw new NodeOperationError(node, `無效的星期值。必須是 1-7 之間的整數或有效的英文星期名稱 (Monday-Sunday)。收到的值: day_of_week=${dayOfWeekValue}`, { itemIndex: i });
 							}
 
 							// 支援不同的時間格式和命名風格

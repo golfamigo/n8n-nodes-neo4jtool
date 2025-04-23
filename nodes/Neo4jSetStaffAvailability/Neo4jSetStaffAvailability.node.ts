@@ -25,6 +25,12 @@ import {
 	normalizeDateTime,
 } from '../neo4j/helpers/timeUtils';
 
+// --- Mapping for day names ---
+const dayNameToNumber: { [key: string]: number } = {
+	'monday': 1, 'tuesday': 2, 'wednesday': 3, 'thursday': 4,
+	'friday': 5, 'saturday': 6, 'sunday': 7
+};
+
 // --- Node Class Definition ---
 export class Neo4jSetStaffAvailability implements INodeType {
 
@@ -158,9 +164,29 @@ export class Neo4jSetStaffAvailability implements INodeType {
 								throw new NodeOperationError(node, `Missing day_of_week in SCHEDULE availability entry ${entryIndex}.`, { itemIndex: i });
 							}
 
-							const dayOfWeek = typeof dayOfWeekValue === 'string' ? parseInt(dayOfWeekValue, 10) : dayOfWeekValue;
-							if (isNaN(dayOfWeek) || dayOfWeek < 1 || dayOfWeek > 7) {
-								throw new NodeOperationError(node, `Invalid day_of_week in entry ${entryIndex}. Must be an integer between 1 and 7 (1=Monday, 7=Sunday). Received: ${dayOfWeekValue}`, { itemIndex: i });
+							let dayOfWeek: number;
+							if (typeof dayOfWeekValue === 'number') {
+								dayOfWeek = dayOfWeekValue;
+							} else if (typeof dayOfWeekValue === 'string') {
+								const lowerCaseDay = dayOfWeekValue.toLowerCase();
+								if (dayNameToNumber[lowerCaseDay]) {
+									dayOfWeek = dayNameToNumber[lowerCaseDay];
+								} else {
+									// 嘗試解析為數字
+									const parsedInt = parseInt(dayOfWeekValue, 10);
+									if (!isNaN(parsedInt)) {
+										dayOfWeek = parsedInt;
+									} else {
+										throw new NodeOperationError(node, `Invalid day_of_week in entry ${entryIndex}. Must be an integer between 1 and 7 or a valid English day name (Monday-Sunday). Received: ${dayOfWeekValue}`, { itemIndex: i });
+									}
+								}
+							} else {
+								throw new NodeOperationError(node, `Invalid day_of_week type in entry ${entryIndex}. Must be a number or string. Received: ${dayOfWeekValue}`, { itemIndex: i });
+							}
+
+							// 驗證轉換後的數字範圍
+							if (dayOfWeek < 1 || dayOfWeek > 7) {
+								throw new NodeOperationError(node, `Invalid day_of_week in entry ${entryIndex}. Must be an integer between 1 and 7 or a valid English day name (Monday-Sunday). Received: ${dayOfWeekValue}`, { itemIndex: i });
 							}
 							entry.day_of_week = dayOfWeek;
 						} else { // EXCEPTION
