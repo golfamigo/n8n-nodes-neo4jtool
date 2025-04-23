@@ -100,14 +100,31 @@ export class Neo4jUpdateBusiness implements INodeType {
 				default: '',
 				description: '新的商家描述 (可選)',
 			},
-			{ // MODIFIED booking_mode type
-				displayName: 'Booking Mode',
-				name: 'booking_mode',
-				type: 'string', // Changed from 'options' to 'string' for AI compatibility
-				// options removed
-				default: '', // Default to empty for update, meaning no change unless specified
-				description: '新的商家預約檢查模式 (可選: ResourceOnly, StaffOnly, StaffAndResource, TimeOnly)', // Added options in description
-			},
+			{
+			displayName: 'Booking Mode',
+			name: 'booking_mode',
+			type: 'options',
+			options: [
+			 {
+			   name: 'Resource Only',
+							value: 'ResourceOnly'
+						},
+						{
+							name: 'Staff Only',
+							value: 'StaffOnly'
+						},
+						{
+							name: 'Staff And Resource',
+							value: 'StaffAndResource'
+						},
+						{
+							name: 'Time Only',
+							value: 'TimeOnly'
+						}
+					],
+					default: 'StaffAndResource',
+					description: '新的商家預約檢查模式 (可選)',
+				},
 			// REMOVED business_hours as it's handled by separate nodes
 		],
 	};
@@ -158,7 +175,8 @@ export class Neo4jUpdateBusiness implements INodeType {
 					const phone = this.getNodeParameter('phone', i, undefined) as string | undefined;
 					const email = this.getNodeParameter('email', i, undefined) as string | undefined;
 					const description = this.getNodeParameter('description', i, undefined) as string | undefined;
-					const booking_mode = this.getNodeParameter('booking_mode', i, undefined) as string | undefined; // Added booking_mode reading
+					const booking_mode = this.getNodeParameter('booking_mode', i, undefined) as string | undefined;
+this.logger.info(`Updating business with booking_mode: ${booking_mode}`);
 
 					// ADDED: Validate booking_mode if provided
 					if (booking_mode !== undefined && booking_mode !== '' && !validBookingModes.includes(booking_mode)) {
@@ -169,13 +187,44 @@ export class Neo4jUpdateBusiness implements INodeType {
 					const setClauses: string[] = [];
 					const parameters: IDataObject = { businessId };
 
-					if (name !== undefined && name !== '') { setClauses.push('b.name = $name'); parameters.name = name; }
-					if (type !== undefined && type !== '') { setClauses.push('b.type = $type'); parameters.type = type; }
-					if (address !== undefined && address !== '') { setClauses.push('b.address = $address'); parameters.address = address; }
-					if (phone !== undefined && phone !== '') { setClauses.push('b.phone = $phone'); parameters.phone = phone; }
-					if (email !== undefined && email !== '') { setClauses.push('b.email = $email'); parameters.email = email; }
-					if (description !== undefined && description !== '') { setClauses.push('b.description = $description'); parameters.description = description; }
-					if (booking_mode !== undefined && booking_mode !== '') { setClauses.push('b.booking_mode = $booking_mode'); parameters.booking_mode = booking_mode; } // Added booking_mode to SET
+					// Explicitly log all parameters for update operation
+					this.logger.info(`Updating Business with ID: ${businessId}`);
+
+					if (name !== undefined && name !== '') {
+					 setClauses.push('b.name = $name');
+					 parameters.name = name;
+					 this.logger.info(`- Setting name: ${name}`);
+						}
+						if (type !== undefined && type !== '') {
+							setClauses.push('b.type = $type');
+							parameters.type = type;
+							this.logger.info(`- Setting type: ${type}`);
+						}
+						if (address !== undefined && address !== '') {
+							setClauses.push('b.address = $address');
+							parameters.address = address;
+							this.logger.info(`- Setting address: ${address}`);
+						}
+						if (phone !== undefined && phone !== '') {
+							setClauses.push('b.phone = $phone');
+							parameters.phone = phone;
+							this.logger.info(`- Setting phone: ${phone}`);
+						}
+						if (email !== undefined && email !== '') {
+							setClauses.push('b.email = $email');
+							parameters.email = email;
+							this.logger.info(`- Setting email: ${email}`);
+						}
+						if (description !== undefined && description !== '') {
+							setClauses.push('b.description = $description');
+							parameters.description = description;
+							this.logger.info(`- Setting description: ${description}`);
+						}
+						if (booking_mode !== undefined && booking_mode !== '') {
+							setClauses.push('b.booking_mode = $booking_mode');
+							parameters.booking_mode = booking_mode;
+							this.logger.info(`- Setting booking_mode: ${booking_mode}`);
+						}
 
 					if (setClauses.length === 0) {
 						// If no optional parameters are provided, maybe just return the existing node or throw an error?

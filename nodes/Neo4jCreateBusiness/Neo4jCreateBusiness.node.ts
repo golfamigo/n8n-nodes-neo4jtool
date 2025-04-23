@@ -106,15 +106,32 @@ export class Neo4jCreateBusiness implements INodeType {
 				default: '',
 				description: '商家描述',
 			},
-			{ // MODIFIED booking_mode type
-				displayName: 'Booking Mode',
-				name: 'booking_mode',
-				type: 'string', // Changed from 'options' to 'string' for AI compatibility
-				// options removed
-				required: true, // Required for creation
-				default: 'TimeOnly', // Default to TimeOnly
-				description: '商家的預約檢查模式 (ResourceOnly, StaffOnly, StaffAndResource, TimeOnly)', // Added options in description
-			},
+			{
+			displayName: 'Booking Mode',
+			name: 'booking_mode',
+			type: 'options',
+			options: [
+			 {
+			  name: 'Resource Only',
+			  value: 'ResourceOnly'
+			  },
+						{
+							name: 'Staff Only',
+							value: 'StaffOnly'
+						},
+						{
+							name: 'Staff And Resource',
+							value: 'StaffAndResource'
+						},
+						{
+							name: 'Time Only',
+							value: 'TimeOnly'
+						}
+					],
+					required: true,
+					default: 'TimeOnly',
+					description: '商家的預約檢查模式',
+				},
 		],
 	};
 
@@ -164,7 +181,8 @@ export class Neo4jCreateBusiness implements INodeType {
 					const phone = this.getNodeParameter('phone', i, '') as string;
 					const email = this.getNodeParameter('email', i, '') as string;
 					const description = this.getNodeParameter('description', i, '') as string;
-					const booking_mode = this.getNodeParameter('booking_mode', i, 'TimeOnly') as string; // Added booking_mode reading
+					const booking_mode = this.getNodeParameter('booking_mode', i, 'TimeOnly') as string; // Get booking_mode from parameters
+this.logger.info(`Creating business with booking_mode: ${booking_mode}`);
 
 					// ADDED: Validate booking_mode
 					if (!validBookingModes.includes(booking_mode)) {
@@ -172,23 +190,29 @@ export class Neo4jCreateBusiness implements INodeType {
 					}
 
 					// 6. Define Specific Cypher Query & Parameters
-					// Query from TaskInstructions.md, adapted
+					// Explicitly log all parameters before creating query
+					this.logger.info(`Creating Business with parameters:`);
+					this.logger.info(`- ownerUserId: ${ownerUserId}`);
+					this.logger.info(`- name: ${name}`);
+					this.logger.info(`- type: ${type}`);
+					this.logger.info(`- booking_mode: ${booking_mode}`);
+					
 					const query = `
-						MATCH (owner:User {id: $ownerUserId})
-						CREATE (b:Business {
-							business_id: randomUUID(),
-							name: $name,
-							type: $type,
-							address: $address,
-							phone: $phone,
-							email: $email,
-							description: $description,
-							booking_mode: $booking_mode, // Added booking_mode
-							created_at: datetime()
-						})
-						MERGE (owner)-[:OWNS]->(b)
-						RETURN b {.*} AS business
-					`;
+					MATCH (owner:User {id: $ownerUserId})
+					CREATE (b:Business {
+					business_id: randomUUID(),
+					name: $name,
+					type: $type,
+					 address: $address,
+					 phone: $phone,
+					 email: $email,
+					  description: $description,
+								booking_mode: $booking_mode,
+								created_at: datetime()
+							})
+							MERGE (owner)-[:OWNS]->(b)
+							RETURN b {.*} AS business
+						`;
 					const parameters: IDataObject = {
 						ownerUserId,
 						name,

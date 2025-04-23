@@ -16,6 +16,7 @@ import neo4j, { Driver, Session, auth } from 'neo4j-driver';
 import {
 	parseNeo4jError,
 	convertNeo4jValueToJs,
+	runCypherQuery,
 } from '../neo4j/helpers/utils';
 
 // --- 導入時間處理工具函數 ---
@@ -23,9 +24,11 @@ import {
 	normalizeDateTime,
 	generateTimeSlotsWithBusinessHours,
 	getIsoWeekday,
-	// 以下保留供未來擴展使用
-	toNeo4jDateTime as _toNeo4jDateTime,
 } from '../neo4j/helpers/timeUtils';
+
+import {
+  generateResourceAvailabilityQuery,
+} from '../neo4j/helpers/resourceUtils';
 
 // --- Node Class Definition ---
 export class Neo4jFindAvailableSlotsResourceOnly implements INodeType {
@@ -94,7 +97,7 @@ export class Neo4jFindAvailableSlotsResourceOnly implements INodeType {
 				type: 'string',
 				required: true,
 				default: '',
-				description: '所需資源類型（如 Chair、Room、Table 等），必填',
+				description: '所需資源類型的唯一識別碼 (Type ID)，不是名稱',
 			},
 			{
 				displayName: 'Required Resource Capacity',
@@ -102,7 +105,7 @@ export class Neo4jFindAvailableSlotsResourceOnly implements INodeType {
 				type: 'number',
 				typeOptions: { numberStep: 1 },
 				default: 1,
-				description: '所需資源容量（預設為 1）',
+				description: '所需資源數量（預設為 1）',
 			},
 		],
 	};
@@ -155,6 +158,27 @@ export class Neo4jFindAvailableSlotsResourceOnly implements INodeType {
 				throw new NodeOperationError(node, '無效的開始或結束日期/時間格式。請使用 ISO 8601 格式。', { itemIndex });
 			}
 
+			// 特別記錄時區清水監測訊息
+			const { DateTime } = require('luxon');
+			const startDt = DateTime.fromISO(normalizedStartDateTime);
+			const endDt = DateTime.fromISO(normalizedEndDateTime);
+			this.logger.debug('時區清水監測:', {
+				開始時間: {
+					原始: startDateTimeStr,
+					正規化: normalizedStartDateTime,
+					時區: startDt.zoneName,
+					偏移量: startDt.offset,
+					UTC轉換: startDt.toUTC().toISO()
+				},
+				結束時間: {
+					原始: endDateTimeStr,
+					正規化: normalizedEndDateTime,
+					時區: endDt.zoneName,
+					偏移量: endDt.offset,
+					UTC轉換: endDt.toUTC().toISO()
+				}
+			});
+
 			// 檢查並記錄時間處理參數
 			this.logger.debug('時間格式檢查:', {
 				原始: {
@@ -182,10 +206,9 @@ export class Neo4jFindAvailableSlotsResourceOnly implements INodeType {
 				throw parseNeo4jError(node, connectionError, 'Neo4j 連接失敗。');
 			}
 
-			// 4. 查詢商家信息、服務時長、營業時間和資源情況
+			// 4. 查詢商家信息、服務時長、營業時間和資源類型情況
 			const preQuery = `
 				MATCH (b:Business {business_id: $businessId})
-				WHERE b.booking_mode = 'ResourceOnly'
 				OPTIONAL MATCH (b)-[:HAS_HOURS]->(bh:BusinessHours)
 				WITH b, collect(bh {
 					day_of_week: bh.day_of_week,
@@ -196,65 +219,100 @@ export class Neo4jFindAvailableSlotsResourceOnly implements INodeType {
 				// 獲取服務信息
 				MATCH (s:Service {service_id: $serviceId})<-[:OFFERS]-(b)
 
-				// 獲取符合條件的資源數量
-				MATCH (b)-[:HAS_RESOURCE]->(r:Resource)
-				WHERE r.type = $requiredResourceType
-				  AND r.capacity >= $requiredResourceCapacity
-
-				WITH b, s, hoursList, count(r) AS availableResourceCount,
-				     collect(r.name) AS resourceNames
+				// 獲取資源類型信息 - 同時支持直接屬性關聯和 BELONGS_TO 關係
+				MATCH (rt:ResourceType)
+				WHERE rt.type_id = $requiredResourceType AND
+				      (rt.business_id = $businessId OR EXISTS((rt)-[:BELONGS_TO]->(b)))
 
 				RETURN s.duration_minutes AS durationMinutes,
 				       hoursList,
-				       availableResourceCount,
-				       resourceNames
+				       rt.name AS resourceTypeName,
+				       rt.total_capacity AS totalCapacity,
+				       rt.description AS resourceTypeDescription
 			`;
 			const preQueryParams = {
 				businessId,
 				serviceId,
-				requiredResourceType,
-				requiredResourceCapacity: neo4j.int(requiredResourceCapacity)
+				requiredResourceType
 			};
 
 			let durationMinutes: number | null = null;
 			let businessHours: any[] = [];
-			let availableResourceCount = 0;
-			let resourceNames: string[] = [];
+			let resourceTypeName: string | null = null;
+			let totalCapacity: number | null = null;
+			let resourceTypeDescription: string | null = null;
 
 			try {
-				this.logger.debug('執行預查詢獲取商家、服務和資源信息', preQueryParams);
+				this.logger.debug('執行預查詢獲取商家、服務和資源類型信息', preQueryParams);
+				if (!session) {
+					throw new NodeOperationError(node, 'Neo4j 會話未初始化', { itemIndex });
+				}
 				const preResult = await session.run(preQuery, preQueryParams);
 
 				if (preResult.records.length === 0) {
-					throw new NodeOperationError(node, `找不到 ResourceOnly 模式的商家 '${businessId}'，或服務 '${serviceId}'，或沒有符合條件的資源。`, { itemIndex });
+					throw new NodeOperationError(node, `找不到商家 ID '${businessId}'，或服務 ID '${serviceId}'，或資源類型的唯一識別碼 Type ID '${requiredResourceType}'。`, { itemIndex });
 				}
 
 				const record = preResult.records[0];
 				durationMinutes = convertNeo4jValueToJs(record.get('durationMinutes'));
 				businessHours = convertNeo4jValueToJs(record.get('hoursList'));
-				availableResourceCount = convertNeo4jValueToJs(record.get('availableResourceCount'));
-				resourceNames = convertNeo4jValueToJs(record.get('resourceNames'));
+				resourceTypeName = convertNeo4jValueToJs(record.get('resourceTypeName'));
+				totalCapacity = convertNeo4jValueToJs(record.get('totalCapacity'));
+				resourceTypeDescription = convertNeo4jValueToJs(record.get('resourceTypeDescription'));
 
 				if (durationMinutes === null) {
 					throw new NodeOperationError(node, `無法獲取服務 ID: ${serviceId} 的時長`, { itemIndex });
 				}
 
-				if (availableResourceCount === 0) {
-					throw new NodeOperationError(node, `沒有找到類型為 '${requiredResourceType}' 且容量 >= ${requiredResourceCapacity} 的資源`, { itemIndex });
+				if (totalCapacity === null || totalCapacity < requiredResourceCapacity) {
+					throw new NodeOperationError(node, `資源類型 '${resourceTypeName || requiredResourceType}' 的總容量 (${totalCapacity}) 小於所需容量 (${requiredResourceCapacity})`, { itemIndex });
 				}
 
 				this.logger.debug('獲取到的商家信息:', {
 					durationMinutes,
 					businessHoursCount: Array.isArray(businessHours) ? businessHours.length : 'not an array',
-					availableResourceCount,
-					resourceNames,
+					resourceTypeName,
+					totalCapacity,
+					resourceTypeDescription,
 				});
 
 			} catch (preQueryError) {
-				throw parseNeo4jError(node, preQueryError, '獲取商家/服務/資源信息失敗。');
+				throw parseNeo4jError(node, preQueryError, '獲取商家/服務/資源類型信息失敗。');
 			}
 
 			// 5. 使用時間工具函數生成潛在時段
+			this.logger.debug('開始生成潛在時段，營業時間為:', businessHours);
+
+			// 調試營業時間格式的比較
+			if (businessHours && businessHours.length > 0) {
+				const tomorrow = DateTime.fromISO(normalizedStartDateTime);
+				const targetWeekday = tomorrow.weekday;
+				this.logger.debug(`目標日期 ${tomorrow.toISO()} 是星期 ${targetWeekday}`);
+
+				const matchingHours = businessHours.filter(bh => bh.day_of_week === targetWeekday);
+				if (matchingHours.length > 0) {
+					this.logger.debug('發現符合星期的營業時間:', matchingHours);
+
+					// 檢查時間比較邏輯
+					const firstHour = matchingHours[0];
+					const startTimeObj = DateTime.fromISO(firstHour.start_time || firstHour.start_time);
+					const endTimeObj = DateTime.fromISO(firstHour.end_time || firstHour.end_time);
+					const requestStart = startDt.toFormat('HH:mm:ss');
+					const requestEnd = endDt.toFormat('HH:mm:ss');
+
+					this.logger.debug('時間比較:', {
+						期望開始: requestStart,
+						營業開始: startTimeObj ? startTimeObj.toFormat('HH:mm:ss') : firstHour.start_time,
+						開始時間比較: firstHour.start_time <= requestStart,
+						期望結束: requestEnd,
+						營業結束: endTimeObj ? endTimeObj.toFormat('HH:mm:ss') : firstHour.end_time,
+						結束時間比較: requestEnd <= firstHour.end_time
+					});
+				} else {
+					this.logger.debug(`無法找到星期 ${targetWeekday} 的營業時間記錄`);
+				}
+			}
+
 			const potentialSlots = generateTimeSlotsWithBusinessHours(
 				normalizedStartDateTime,
 				normalizedEndDateTime,
@@ -275,10 +333,10 @@ export class Neo4jFindAvailableSlotsResourceOnly implements INodeType {
 						filteredOutSlots: 0,
 						message: "未找到潛在時段 - 請檢查營業時間和日期範圍",
 						mode: "ResourceOnly",
-						resourceType: requiredResourceType,
+						resourceType: resourceTypeName || requiredResourceType,
+						resourceTypeId: requiredResourceType,
 						resourceCapacity: requiredResourceCapacity,
-						availableResourceCount,
-						resourceNames
+						totalCapacity
 					},
 					pairedItem: { item: itemIndex },
 				});
@@ -288,54 +346,67 @@ export class Neo4jFindAvailableSlotsResourceOnly implements INodeType {
 
 			// 6. ResourceOnly 查詢 - 檢查營業時間、資源可用性和預約衝突
 			const resourceOnlyQuery = `
-				// 輸入：潛在時段開始時間列表 (ISO 字符串)
-				UNWIND $potentialSlots AS slotStr
-				WITH datetime(slotStr) AS slotStart
+					// 輸入：潛在時段開始時間列表 (ISO 字符串)
+					UNWIND $potentialSlots AS slotStr
+					// 轉換為標準化 UTC 時間
+					WITH datetime(slotStr) AS slotStart
 
-				// 獲取商家、服務、時長
-				MATCH (b:Business {business_id: $businessId})
-				MATCH (s:Service {service_id: $serviceId})<-[:OFFERS]-(b)
-				WITH b, s, slotStart, duration({minutes: s.duration_minutes}) AS serviceDuration
-				WITH b, s, slotStart, serviceDuration, slotStart + serviceDuration AS slotEnd
+					// 印出調試信息
+					// 獲取商家、服務、時長
+					MATCH (b:Business {business_id: $businessId})
+					MATCH (s:Service {service_id: $serviceId})<-[:OFFERS]-(b)
+					WITH b, s, slotStart, duration({minutes: s.duration_minutes}) AS serviceDuration
+					WITH b, s, slotStart, serviceDuration, slotStart + serviceDuration AS slotEnd
 
-				// 檢查商家營業時間
-				MATCH (b)-[:HAS_HOURS]->(bh:BusinessHours)
-				WHERE bh.day_of_week = date(slotStart).dayOfWeek
-					AND time(bh.start_time) <= time(slotStart)
-					AND time(bh.end_time) >= time(slotEnd)
+					// 檢查商家營業時間 - 強制轉換為 UTC 時間進行比較
+					MATCH (b)-[:HAS_HOURS]->(bh:BusinessHours)
+					WHERE bh.day_of_week = date(slotStart).dayOfWeek
+							AND time(bh.start_time) <= time(slotStart)
+							AND time(bh.end_time) >= time(slotEnd)
 
-				WITH b, s, slotStart, slotEnd, serviceDuration
+					WITH b, s, slotStart, slotEnd, serviceDuration, toString(slotStart) AS slotStartStr
 
-				// 獲取符合要求的所有資源
-				MATCH (b)-[:HAS_RESOURCE]->(r:Resource)
-				WHERE r.type = $requiredResourceType
-					AND r.capacity >= $requiredResourceCapacity
-
-				// 計算同一時段已被預約的資源數量
-				OPTIONAL MATCH (bk:Booking)-[:AT_BUSINESS]->(b)
-				WHERE bk.booking_time < slotEnd
-					AND bk.booking_time + duration({minutes: $durationMinutes}) > slotStart
-
-				WITH slotStart, slotEnd, count(r) AS totalResources,
-					 count(bk) AS concurrentBookings
-
-				// 確保有足夠的可用資源 (總資源數 > 同時預約數)
-				WHERE totalResources > concurrentBookings
-
-				RETURN toString(slotStart) AS availableSlot,
-					   totalResources,
-					   totalResources - concurrentBookings AS availableResourcesCount
-				ORDER BY availableSlot
+					${generateResourceAvailabilityQuery(
+							'$requiredResourceType',
+							'slotStart',
+							'serviceDuration',  // 修正：使用正確的變數名稱，不需要 $ 前綴
+							'$requiredResourceCapacity',
+							'$businessId',
+							{
+									includeWhereClause: true,
+									tempVarPrefix: 'rsrc',
+									includeReturn: true,
+									customVariables: {
+											previousVars: 'slotStartStr',
+											keepVars: 'slotStartStr,'
+									}
+							}
+					)}
 			`;
 
 			const resourceOnlyParams: IDataObject = {
-				businessId,
-				serviceId,
-				potentialSlots,
-				requiredResourceType,
-				requiredResourceCapacity: neo4j.int(requiredResourceCapacity),
-				durationMinutes: neo4j.int(durationMinutes)
+					businessId,
+					serviceId,
+					potentialSlots,
+					requiredResourceType,
+					requiredResourceCapacity: neo4j.int(requiredResourceCapacity),
+					durationMinutes: neo4j.int(durationMinutes),  // 確保參數中包含durationMinutes
+					serviceDuration: neo4j.int(durationMinutes)  // 添加與查詢中使用的同名參數
 			};
+
+			// 添加額外的調試日誌
+			this.logger.debug('執行資源模式可用時段查詢', {
+					potentialSlotsCount: potentialSlots.length,
+					firstSlot: potentialSlots.length > 0 ? potentialSlots[0] : null,
+					lastSlot: potentialSlots.length > 0 ? potentialSlots[potentialSlots.length - 1] : null,
+					requiredResourceType,
+					requiredResourceCapacity,
+					durationMinutes,
+					serviceDuration: durationMinutes,
+					businessHoursCount: businessHours.length,
+					resourceTypeName,
+					totalCapacity
+			});
 
 			try {
 				// 7. 執行 ResourceOnly 查詢
@@ -347,14 +418,49 @@ export class Neo4jFindAvailableSlotsResourceOnly implements INodeType {
 					requiredResourceCapacity
 				});
 
-				const mainResult = await session.run(resourceOnlyQuery, resourceOnlyParams);
-				const availableSlotData = mainResult.records.map(record => ({
-					slot: record.get('availableSlot'),
-					totalResources: convertNeo4jValueToJs(record.get('totalResources')),
-					availableResources: convertNeo4jValueToJs(record.get('availableResourcesCount'))
-				}));
+				if (!session) {
+					throw new NodeOperationError(node, 'Neo4j 會話未初始化', { itemIndex });
+				}
 
-				const availableSlots = availableSlotData.map(data => data.slot);
+				// 使用通用查詢執行函數以獲得更好的錯誤處理
+				const availableSlotsResults = await runCypherQuery.call(
+					this,
+					session,
+					resourceOnlyQuery,
+					resourceOnlyParams,
+					false,
+					itemIndex
+				);
+
+				// 從查詢結果中提取數據
+				const availableSlots: string[] = [];
+				const slotDetails: any[] = [];
+
+				// 調試輸出原始結果
+				this.logger.debug(`查詢返回了 ${availableSlotsResults.length} 條記錄`);
+				if (availableSlotsResults.length > 0) {
+					this.logger.debug(`第一條記錄內容: ${JSON.stringify(availableSlotsResults[0].json || {})}`);
+					for (const result of availableSlotsResults) {
+							// 查找多種可能的屬性名稱
+							const slot = result.json?.availableSlot || result.json?.slotStartStr || result.json?.slot;
+							if (slot) {
+									// 確保添加到 availableSlots 的值是字符串
+									availableSlots.push(String(slot));
+									slotDetails.push({
+											slot: String(slot), // 確保 slot 是字符串
+											resourceType: result.json?.resourceType || result.json?.resourceTypeName || resourceTypeName,
+											totalCapacity: result.json?.totalCapacity || totalCapacity,
+											usedResources: result.json?.usedResources || 0,
+											availableCapacity: result.json?.availableCapacity || result.json?.availableCount || 0
+									});
+							} else {
+									// 調試無效結果
+									this.logger.debug(`發現無效結果: ${JSON.stringify(result.json || {})}`);
+							}
+					}
+				} else {
+					this.logger.debug(`查詢未返回可用時段記錄`);
+				}
 
 				this.logger.debug(`找到 ${availableSlots.length} 個可用時段，從 ${potentialSlots.length} 個潛在時段中篩選`);
 
@@ -362,14 +468,15 @@ export class Neo4jFindAvailableSlotsResourceOnly implements INodeType {
 				returnData.push({
 					json: {
 						availableSlots,
-						slotDetails: availableSlotData,
+						slotDetails,
 						totalPotentialSlots: potentialSlots.length,
 						filteredOutSlots: potentialSlots.length - availableSlots.length,
 						mode: "ResourceOnly",
-						resourceType: requiredResourceType,
+						resourceType: resourceTypeName || requiredResourceType,
+						resourceTypeId: requiredResourceType,
 						resourceCapacity: requiredResourceCapacity,
-						totalResourceCount: availableResourceCount,
-						resourceNames
+						totalCapacity,
+						resourceDescription: resourceTypeDescription || ""
 					},
 					pairedItem: { item: itemIndex },
 				});

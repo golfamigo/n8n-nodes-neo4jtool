@@ -162,7 +162,7 @@ export class Neo4jCreateResource implements INodeType {
 							properties: $propertiesJsonString,
 							created_at: datetime()
 						})
-						MERGE (b)-[:HAS_RESOURCE]->(r)
+						MERGE (r)-[:BELONGS_TO]->(b)
 						RETURN r {.*} AS resource
 					`;
 					const parameters: IDataObject = {

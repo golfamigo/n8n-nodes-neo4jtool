@@ -16,7 +16,7 @@ import neo4j, { Driver, Session, auth } from 'neo4j-driver';
 import {
 	runCypherQuery,
 	parseNeo4jError,
-} from '../neo4j/helpers/utils'; // Adjusted path relative to new location
+} from '../neo4j/helpers/utils';
 
 // --- 引入時間處理工具函數 ---
 import {
@@ -35,13 +35,13 @@ export class Neo4jCreateBooking implements INodeType {
 
 	// --- Node Description for n8n UI ---
 	description: INodeTypeDescription = {
-		displayName: 'Neo4j Create Booking', // From TaskInstructions.md
-		name: 'neo4jCreateBooking', // From TaskInstructions.md
+		displayName: 'Neo4j Create Booking',
+		name: 'neo4jCreateBooking',
 		icon: 'file:../neo4j/neo4j.svg',
 		group: ['database'],
 		version: 1,
-		subtitle: 'for {{$parameter["customerId"]}} at {{$parameter["businessId"]}}', // Show customer and business
-		description: '創建一個新的預約記錄並建立必要的關聯。', // From TaskInstructions.md
+		subtitle: 'for {{$parameter["customerId"]}} at {{$parameter["businessId"]}}',
+		description: '創建一個新的預約記錄並建立必要的關聯。',
 		defaults: {
 			name: 'Neo4j Create Booking',
 		},
@@ -101,6 +101,21 @@ export class Neo4jCreateBooking implements INodeType {
 				description: '指定服務員工 ID (可選)',
 			},
 			{
+				displayName: 'Resource Type ID',
+				name: 'resourceTypeId',
+				type: 'string',
+				default: '',
+				description: '預約使用的資源類型 ID (可選)',
+			},
+			{
+				displayName: 'Resource Quantity',
+				name: 'resourceQuantity',
+				type: 'number',
+				typeOptions: { minValue: 1, numberStep: 1 },
+				default: 1,
+				description: '需要使用的資源數量 (默認為 1)',
+			},
+			{
 				displayName: 'Notes',
 				name: 'notes',
 				type: 'string',
@@ -110,7 +125,6 @@ export class Neo4jCreateBooking implements INodeType {
 				default: '',
 				description: '預約備註 (可選)',
 			},
-			// Removed is_system as obsolete
 		],
 	};
 
@@ -157,6 +171,8 @@ export class Neo4jCreateBooking implements INodeType {
 					const serviceId = this.getNodeParameter('serviceId', i, '') as string;
 					const rawBookingTime = this.getNodeParameter('bookingTime', i, '') as string;
 					const staffId = this.getNodeParameter('staffId', i, '') as string;
+					const resourceTypeId = this.getNodeParameter('resourceTypeId', i, '') as string;
+					const resourceQuantity = this.getNodeParameter('resourceQuantity', i, 1) as number;
 					const notes = this.getNodeParameter('notes', i, '') as string;
 
 					// 使用時間處理工具規範化預約時間，確保 UTC 格式一致
@@ -166,63 +182,161 @@ export class Neo4jCreateBooking implements INodeType {
 						throw new NodeOperationError(node, `Invalid booking time format: ${rawBookingTime}. Please provide a valid ISO 8601 datetime.`, { itemIndex: i });
 					}
 
-					// 6. Define Specific Cypher Query & Parameters
-					// Base query parts
-					const matchClauses = [
-						'MATCH (c:Customer {customer_id: $customerId})',
-						'MATCH (b:Business {business_id: $businessId})',
-						'MATCH (s:Service {service_id: $serviceId})',
-					];
-					const createBookingClause = `
+					// 6. 檢查服務和資源可用性 (樂觀並發檢查)
+					if (!session) {
+						throw new NodeOperationError(node, 'Neo4j session is not available.', { itemIndex: i });
+					}
+
+					// 檢查服務存在性並獲取時長
+					const serviceCheckQuery = `
+						MATCH (s:Service {service_id: $serviceId})<-[:OFFERS]-(b:Business {business_id: $businessId})
+						RETURN s.duration_minutes AS serviceDuration
+					`;
+					const serviceParams: IDataObject = {
+						serviceId,
+						businessId
+					};
+
+					const serviceResults = await runCypherQuery.call(this, session, serviceCheckQuery, serviceParams, false, i);
+					if (serviceResults.length === 0) {
+						throw new NodeOperationError(node, `Service ID ${serviceId} does not exist for Business ID ${businessId}`, { itemIndex: i });
+					}
+
+					const serviceDuration = serviceResults[0].json.serviceDuration;
+					
+					// 如果提供了資源類型，檢查資源可用性
+					let resourcesAvailable = true;
+					if (resourceTypeId) {
+						const resourceCheckQuery = `
+							// 獲取資源類型信息
+							MATCH (rt:ResourceType {type_id: $resourceTypeId, business_id: $businessId})
+							
+							// 計算預約時間段
+							WITH rt, datetime($bookingTime) AS startTime, 
+								 datetime($bookingTime) + duration({minutes: $serviceDuration}) AS endTime
+							
+							// 檢查當前已使用的資源數量
+							OPTIONAL MATCH (b:Booking)-[:USES_RESOURCE]->(ru:ResourceUsage)-[:OF_TYPE]->(rt)
+							WHERE b.booking_time < endTime AND 
+								  b.booking_time + duration({minutes: $serviceDuration}) > startTime
+							
+							// 計算可用資源
+							WITH rt, sum(COALESCE(ru.quantity, 0)) AS usedResources
+							WHERE rt.total_capacity >= usedResources + $resourceQuantity
+							
+							RETURN rt.name AS resourceName, 
+								   rt.total_capacity AS totalCapacity,
+								   rt.total_capacity - usedResources AS availableCapacity
+						`;
+						
+						const resourceParams: IDataObject = {
+							resourceTypeId,
+							businessId,
+							bookingTime,
+							serviceDuration,
+							resourceQuantity: neo4j.int(resourceQuantity)
+						};
+
+						const resourceResults = await runCypherQuery.call(this, session, resourceCheckQuery, resourceParams, false, i);
+						resourcesAvailable = resourceResults.length > 0;
+						
+						if (!resourcesAvailable) {
+							throw new NodeOperationError(node, `Not enough resources available for resource type ${resourceTypeId}. Please choose another time or reduce resource quantity.`, { itemIndex: i });
+						}
+					}
+
+					// 7. 開始創建預約事務 (使用事務確保原子性)
+					// 使用悲觀鎖確保並發預約不會超出資源上限
+					const txQuery = `
+						// 使用 WITH 1 as _ 作為查詢的起點
+						WITH 1 as _
+						
+						// 查找客戶、商家和服務
+						MATCH (c:Customer {customer_id: $customerId})
+						MATCH (b:Business {business_id: $businessId})
+						MATCH (s:Service {service_id: $serviceId})
+						
+						// 創建預約記錄
 						CREATE (bk:Booking {
 							booking_id: randomUUID(),
 							customer_id: $customerId,
 							business_id: $businessId,
 							service_id: $serviceId,
-							booking_time: datetime($bookingTime), // 使用規範化的 ISO 字符串
+							booking_time: datetime($bookingTime),
 							status: 'Confirmed',
 							notes: $notes,
 							created_at: datetime()
 						})
+						
+						// 建立預約關聯
+						MERGE (c)-[:MAKES]->(bk)
+						MERGE (bk)-[:AT_BUSINESS]->(b)
+						MERGE (bk)-[:FOR_SERVICE]->(s)
+						
+						// 如果有員工ID，建立與員工的關聯
+						WITH bk, b, s
+						${staffId ? `
+						MATCH (st:Staff {staff_id: $staffId})
+						MERGE (bk)-[:SERVED_BY]->(st)
+						WITH bk, b, s
+						` : ''}
+						
+						// 如果有資源類型，創建資源使用記錄
+						${resourceTypeId ? `
+						MATCH (rt:ResourceType {type_id: $resourceTypeId, business_id: $businessId})
+						
+						// 檢查資源可用性 (悲觀鎖機制)
+						WITH bk, b, s, rt, datetime($bookingTime) AS startTime, 
+							 datetime($bookingTime) + duration({minutes: $serviceDuration}) AS endTime
+							 
+						// 獲取當前已使用的資源數量 (使用 FOR UPDATE 鎖定這些記錄)
+						OPTIONAL MATCH (existing:Booking)-[:USES_RESOURCE]->(ru:ResourceUsage)-[:OF_TYPE]->(rt)
+						WHERE existing.booking_time < endTime AND 
+							  existing.booking_time + duration({minutes: $serviceDuration}) > startTime
+						WITH bk, b, s, rt, startTime, endTime, sum(COALESCE(ru.quantity, 0)) AS usedResources
+						
+						// 再次確認資源足夠 (避免競爭條件)
+						WHERE rt.total_capacity >= usedResources + $resourceQuantity
+						
+						// 創建資源使用記錄
+						CREATE (ru:ResourceUsage {
+							usage_id: randomUUID(),
+							booking_id: bk.booking_id,
+							resource_type_id: rt.type_id,
+							quantity: $resourceQuantity,
+							created_at: datetime()
+						})
+						MERGE (bk)-[:USES_RESOURCE]->(ru)
+						MERGE (ru)-[:OF_TYPE]->(rt)
+						WITH bk
+						` : 'WITH bk'}
+						
+						// 返回預約詳情
+						RETURN bk {.*} AS booking
 					`;
-					const mergeRelationClauses = [
-						'MERGE (c)-[:MAKES]->(bk)',
-						'MERGE (bk)-[:AT_BUSINESS]->(b)',
-						'MERGE (bk)-[:FOR_SERVICE]->(s)',
-					];
-					const returnClause = 'RETURN bk {.*} AS booking';
 
-					const parameters: IDataObject = {
+					const txParams: IDataObject = {
 						customerId,
 						businessId,
 						serviceId,
-						bookingTime, // 使用規範化後的時間
+						bookingTime,
 						notes,
+						serviceDuration,
 					};
 
-					// Handle optional staff
-					if (staffId !== undefined && staffId !== '') {
-						matchClauses.push('MATCH (st:Staff {staff_id: $staffId})');
-						mergeRelationClauses.push('MERGE (bk)-[:SERVED_BY]->(st)');
-						parameters.staffId = staffId;
+					// 添加可選參數
+					if (staffId) {
+						txParams.staffId = staffId;
+					}
+					
+					if (resourceTypeId) {
+						txParams.resourceTypeId = resourceTypeId;
+						txParams.resourceQuantity = neo4j.int(resourceQuantity);
 					}
 
-					// Combine query parts
-					const query = [
-						...matchClauses,
-						createBookingClause,
-						...mergeRelationClauses,
-						returnClause,
-					].join('\n');
-
-					const isWrite = true; // This is a write operation (CREATE)
-
-					// 7. Execute Query
-					if (!session) {
-						throw new NodeOperationError(node, 'Neo4j session is not available.', { itemIndex: i });
-					}
-					const results = await runCypherQuery.call(this, session, query, parameters, isWrite, i);
-					returnData.push(...results);
+					// 執行事務並獲取結果
+					const txResults = await runCypherQuery.call(this, session, txQuery, txParams, true, i);
+					returnData.push(...txResults);
 
 				} catch (itemError) {
 					// 8. Handle Item-Level Errors

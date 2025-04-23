@@ -102,7 +102,10 @@ export class Neo4jListResourceTypes implements INodeType {
 
 					// 6. Define Specific Cypher Query & Parameters
 					// Query from TaskInstructions.md
-					const query = 'MATCH (b:Business {business_id: $businessId})-[:HAS_RESOURCE]->(r:Resource) RETURN DISTINCT r.type AS resourceType';
+					const query = `
+						MATCH (b:Business {business_id: $businessId})<-[:BELONGS_TO]-(rt:ResourceType)
+						RETURN rt.name AS resourceType, rt.type_id AS type_id, rt.total_capacity AS totalCapacity, rt.description AS description
+					`;
 					const parameters: IDataObject = { businessId };
 					const isWrite = false; // This is a read operation
 

@@ -319,6 +319,15 @@ export const runCypherQuery: CypherRunner = async function (
 	itemIndex: number,
 ): Promise<INodeExecutionData[]> {
 	try {
+		// Add debug logging for query and parameters
+		this.logger.debug(`Running Cypher query: ${query}`);
+		this.logger.debug(`With parameters: ${JSON.stringify(parameters)}`);
+		
+		// Specifically log booking_mode if present
+		if (parameters.booking_mode !== undefined) {
+			this.logger.info(`booking_mode parameter value: ${parameters.booking_mode}`);
+		}
+		
 		let result: QueryResult;
 		const transactionFunction = async (tx: ManagedTransaction) => {
 			// Potentially convert JS types to Neo4j driver types here if needed before running
@@ -334,6 +343,11 @@ export const runCypherQuery: CypherRunner = async function (
 		}
 
 		const executionData = wrapNeo4jResult(result.records);
+		
+		// Log the first result to debug booking_mode issues
+		if (executionData.length > 0 && executionData[0].json.business) {
+			this.logger.info(`Result business node: ${JSON.stringify(executionData[0].json.business)}`);
+		}
 
 		return executionData.map(item => ({ ...item, pairedItem: { item: itemIndex } }));
 

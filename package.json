@@ -1,6 +1,6 @@
 {
   "name": "n8n-nodes-neo4jtool",
-  "version": "0.1.91",
+  "version": "0.1.104",
   "description": "a Neo4j node for n8n workflows",
   "keywords": [
     "n8n-community-node-package",
@@ -79,7 +79,8 @@
       "dist/nodes/Neo4jLinkStaffToService/Neo4jLinkStaffToService.node.js",
       "dist/nodes/Neo4jFindCustomerByExternalIdAndBusinessId/Neo4jFindCustomerByExternalIdAndBusinessId.node.js",
       "dist/nodes/Neo4jFindStaffByExternalId/Neo4jFindStaffByExternalId.node.js",
-      "dist/nodes/Neo4jVerifyBusinessSetup/Neo4jVerifyBusinessSetup.node.js"
+      "dist/nodes/Neo4jVerifyBusinessSetup/Neo4jVerifyBusinessSetup.node.js",
+      "dist/nodes/Neo4jCreateResourceType/Neo4jCreateResourceType.node.js"
     ]
   },
   "devDependencies": {

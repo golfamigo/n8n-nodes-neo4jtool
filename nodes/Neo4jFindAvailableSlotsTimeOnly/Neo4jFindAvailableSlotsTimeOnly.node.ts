@@ -15,7 +15,7 @@ import neo4j, { Driver, Session, auth } from 'neo4j-driver';
 // --- 導入共用工具函數 ---
 import {
 	parseNeo4jError,
-	convertNeo4jValueToJs,
+	runCypherQuery,
 } from '../neo4j/helpers/utils';
 
 // --- 導入時間處理工具函數 ---
@@ -23,8 +23,6 @@ import {
 	normalizeDateTime,
 	generateTimeSlotsWithBusinessHours,
 	getIsoWeekday,
-	// 以下保留供未來擴展使用
-	toNeo4jDateTime as _toNeo4jDateTime,
 } from '../neo4j/helpers/timeUtils';
 
 // --- Node Class Definition ---
@@ -160,7 +158,6 @@ export class Neo4jFindAvailableSlotsTimeOnly implements INodeType {
 			// 4. 查詢商家信息、服務時長和營業時間
 			const preQuery = `
 				MATCH (b:Business {business_id: $businessId})
-				WHERE b.booking_mode = 'TimeOnly'
 				OPTIONAL MATCH (b)-[:HAS_HOURS]->(bh:BusinessHours)
 				WITH b, collect(bh {
 					day_of_week: bh.day_of_week,
@@ -177,15 +174,28 @@ export class Neo4jFindAvailableSlotsTimeOnly implements INodeType {
 
 			try {
 				this.logger.debug('執行預查詢獲取商家信息和營業時間', { businessId, serviceId });
-				const preResult = await session.run(preQuery, preQueryParams);
 
-				if (preResult.records.length === 0) {
-					throw new NodeOperationError(node, `找不到 TimeOnly 模式的商家 '${businessId}' 或服務 '${serviceId}'，或兩者沒有關聯。`, { itemIndex });
+				if (!session) {
+					throw new NodeOperationError(node, 'Neo4j 會話未初始化', { itemIndex });
 				}
 
-				const record = preResult.records[0];
-				durationMinutes = convertNeo4jValueToJs(record.get('durationMinutes'));
-				businessHours = convertNeo4jValueToJs(record.get('hoursList'));
+				const preResults = await runCypherQuery.call(
+					this,
+					session,
+					preQuery,
+					preQueryParams,
+					false,
+					itemIndex
+				);
+
+				if (preResults.length === 0) {
+					throw new NodeOperationError(node, `找不到商家 ID '${businessId}' 或服務 ID '${serviceId}'，或兩者沒有關聯。`, { itemIndex });
+				}
+
+				// 從結果中提取必要數據
+				const rawDuration = preResults[0].json?.durationMinutes;
+				durationMinutes = typeof rawDuration === 'number' ? rawDuration : null;
+				businessHours = Array.isArray(preResults[0].json?.hoursList) ? preResults[0].json.hoursList : [];
 
 				if (durationMinutes === null) {
 					throw new NodeOperationError(node, `無法獲取服務 ID: ${serviceId} 的時長`, { itemIndex });
@@ -238,25 +248,26 @@ export class Neo4jFindAvailableSlotsTimeOnly implements INodeType {
 				MATCH (b:Business {business_id: $businessId})
 				MATCH (s:Service {service_id: $serviceId})<-[:OFFERS]-(b)
 				WITH b, s, slotStart, duration({minutes: s.duration_minutes}) AS serviceDuration
-				WITH b, s, slotStart, serviceDuration, slotStart + serviceDuration AS slotEnd
+				WITH b, s, slotStart, serviceDuration, slotStart + serviceDuration AS slotEnd, date(slotStart) AS slotDate, date(slotStart).dayOfWeek AS slotDayOfWeek
 
 				// 檢查商家營業時間 - 使用明確的轉換確保格式一致
 				// 我們知道這些營業時間已經通過生成潛在時段時篩選，這裡是額外檢查
 				MATCH (b)-[:HAS_HOURS]->(bh:BusinessHours)
-				WHERE bh.day_of_week = date(slotStart).dayOfWeek
+				WHERE bh.day_of_week = slotDayOfWeek
 					AND time(bh.start_time) <= time(slotStart)
 					AND time(bh.end_time) >= time(slotEnd)
 
-				WITH b, slotStart, slotEnd, serviceDuration
+				WITH b, slotStart, slotEnd, serviceDuration, toString(slotStart) AS slotStartStr
 
 				// 檢查是否有衝突預約 - 僅檢查時間衝突，不考慮資源或員工
+				// 使用 ResourceUsage 記錄確保一致性
 				WHERE NOT EXISTS {
 					MATCH (bk:Booking)-[:AT_BUSINESS]->(b)
 					WHERE bk.booking_time < slotEnd AND
 						bk.booking_time + duration({minutes: $durationMinutes}) > slotStart
 				}
 
-				RETURN toString(slotStart) AS availableSlot
+				RETURN slotStartStr AS availableSlot
 				ORDER BY availableSlot
 			`;
 
@@ -275,8 +286,31 @@ export class Neo4jFindAvailableSlotsTimeOnly implements INodeType {
 					lastSlot: potentialSlots.length > 0 ? potentialSlots[potentialSlots.length - 1] : null
 				});
 
-				const mainResult = await session.run(timeOnlyQuery, timeOnlyParams);
-				const availableSlots = mainResult.records.map(record => record.get('availableSlot'));
+				if (!session) {
+					throw new NodeOperationError(node, 'Neo4j 會話未初始化', { itemIndex });
+				}
+
+				// 使用通用查詢執行函數以獲得更好的錯誤處理
+				const availableSlotsResults = await runCypherQuery.call(
+					this,
+					session,
+					timeOnlyQuery,
+					timeOnlyParams,
+					false,
+					itemIndex
+				);
+
+				// 從查詢結果中提取可用時段
+				const availableSlots: string[] = [];
+
+				if (availableSlotsResults.length > 0) {
+					for (const result of availableSlotsResults) {
+						const slot = result.json?.availableSlot;
+						if (slot) {
+							availableSlots.push(String(slot));
+						}
+					}
+				}
 
 				this.logger.debug(`找到 ${availableSlots.length} 個可用時段，從 ${potentialSlots.length} 個潛在時段中篩選`);
 
@@ -286,7 +320,9 @@ export class Neo4jFindAvailableSlotsTimeOnly implements INodeType {
 						availableSlots,
 						totalPotentialSlots: potentialSlots.length,
 						filteredOutSlots: potentialSlots.length - availableSlots.length,
-						mode: "TimeOnly"
+						mode: "TimeOnly",
+						serviceId,
+						serviceDuration: durationMinutes
 					},
 					pairedItem: { item: itemIndex },
 				});

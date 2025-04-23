@@ -9,3 +9,4 @@ yarn.lock
 .n8n-dev-data
 .env
 DOCS
+scripts

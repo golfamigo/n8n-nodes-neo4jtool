@@ -355,11 +355,25 @@ export function generateTimeSlotsWithBusinessHours(
   }>,
   intervalMinutes: number = 15
 ): string[] {
-  const normalizedStart = normalizeDateTime(startDateTime);
-  const normalizedEnd = normalizeDateTime(endDateTime);
+  // 確保時間正規化為統一格式
+  let normalizedStart = normalizeDateTime(startDateTime);
+  let normalizedEnd = normalizeDateTime(endDateTime);
 
   if (!normalizedStart || !normalizedEnd || !Array.isArray(businessHours)) {
     return [];
+  }
+  
+  // 如果帶有時區，轉換為 UTC 時間來確保一致性
+  const dtStart = DateTime.fromISO(normalizedStart);
+  const dtEnd = DateTime.fromISO(normalizedEnd);
+  
+  // 如果輸入時間帶有時區信息且不是 UTC，轉換為 UTC
+  if (dtStart.isValid && dtStart.zoneName !== 'UTC') {
+    normalizedStart = dtStart.toUTC().toISO();
+  }
+  
+  if (dtEnd.isValid && dtEnd.zoneName !== 'UTC') {
+    normalizedEnd = dtEnd.toUTC().toISO();
   }
 
   // 規範化業務時間
