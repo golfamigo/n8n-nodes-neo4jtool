@@ -366,7 +366,7 @@ export class Neo4jFindAvailableSlotsStaffAndResource implements INodeType {
 				AND NOT EXISTS {
 					MATCH (bk:Booking)-[:SERVED_BY]->(st)
 					WHERE bk.booking_time < slotEnd
-						AND bk.booking_time + duration({minutes: $durationMinutes}) > slotStart
+						AND bk.booking_time + duration({minutes: durationMinutesVal}) > slotStart
 				}
 
 				// 檢查資源類型可用性
