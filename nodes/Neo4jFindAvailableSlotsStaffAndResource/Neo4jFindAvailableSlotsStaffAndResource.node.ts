@@ -336,7 +336,7 @@ export class Neo4jFindAvailableSlotsStaffAndResource implements INodeType {
 					AND time(bh.start_time) <= time(slotStart)
 					AND time(bh.end_time) >= time(slotEnd)
 
-				WITH b, s, slotStart, slotEnd, durationMinutesVal, serviceDuration, slotDate, slotDayOfWeek
+				WITH b, s, slotStart, slotEnd, durationMinutesVal, serviceDuration, slotDate, slotDayOfWeek // Added durationMinutesVal
 
 				// 檢查指定員工的可用性
 				MATCH (b)-[:EMPLOYS]->(st:Staff {staff_id: $requiredStaffId})
@@ -366,7 +366,7 @@ export class Neo4jFindAvailableSlotsStaffAndResource implements INodeType {
 				AND NOT EXISTS {
 					MATCH (bk:Booking)-[:SERVED_BY]->(st)
 					WHERE bk.booking_time < slotEnd
-						AND bk.booking_time + duration({minutes: durationMinutesVal}) > slotStart
+						AND bk.booking_time + duration({minutes: durationMinutesVal}) > slotStart // Use durationMinutesVal
 				}
 
 				// 檢查資源類型可用性
@@ -406,7 +406,7 @@ export class Neo4jFindAvailableSlotsStaffAndResource implements INodeType {
 				requiredStaffId,
 				requiredResourceType,
 				requiredResourceCapacity: neo4j.int(requiredResourceCapacity),
-				// durationMinutes: neo4j.int(durationMinutes) // Removed as it's not directly used in the query with $
+				durationMinutes: neo4j.int(durationMinutes) // Re-added durationMinutes parameter
 			};
 
 			try {
