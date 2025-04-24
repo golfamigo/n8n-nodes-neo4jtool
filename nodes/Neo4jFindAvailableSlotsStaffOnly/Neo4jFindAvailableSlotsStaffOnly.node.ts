@@ -272,11 +272,13 @@ export class Neo4jFindAvailableSlotsStaffOnly implements INodeType {
 				WITH b, s, slotStart, duration({minutes: s.duration_minutes}) AS serviceDuration
 				WITH b, s, slotStart, serviceDuration, slotStart + serviceDuration AS slotEnd, date(slotStart) AS slotDate, date(slotStart).dayOfWeek AS slotDayOfWeek
 
-				// 檢查商家營業時間
+				// 檢查商家營業時間 (處理分段)
+				WITH b, s, slotStart, slotEnd, serviceDuration, slotDate, slotDayOfWeek
 				MATCH (b)-[:HAS_HOURS]->(bh:BusinessHours)
 				WHERE bh.day_of_week = slotDayOfWeek
-					AND time(bh.start_time) <= time(slotStart)
-					AND time(bh.end_time) >= time(slotEnd)
+				WITH b, s, slotStart, slotEnd, serviceDuration, slotDate, slotDayOfWeek, collect([time(bh.start_time), time(bh.end_time)]) AS businessHourRanges
+				WHERE size(businessHourRanges) > 0 // 確保當天有營業時間
+				  AND any(range IN businessHourRanges WHERE range[0] <= time(slotStart) AND range[1] >= time(slotEnd)) // 檢查是否落在任何一個營業時段內
 
 				WITH b, s, slotStart, slotEnd, serviceDuration, slotDate, slotDayOfWeek
 

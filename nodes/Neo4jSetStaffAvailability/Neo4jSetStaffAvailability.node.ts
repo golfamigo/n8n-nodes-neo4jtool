@@ -254,8 +254,25 @@ export class Neo4jSetStaffAvailability implements INodeType {
 						throw new NodeOperationError(node, `Staff ID ${staffId} does not exist`, { itemIndex: i });
 					}
 
-					// 9. 在單一事務中處理可用時間
+					// --- MODIFICATION START: Delete all old availability first ---
 					let totalDeletedCount = 0;
+					const initialDeleteQuery = `
+						MATCH (st:Staff {staff_id: $staffId})-[r:HAS_AVAILABILITY]->(sa:StaffAvailability)
+						DELETE r, sa
+						RETURN count(sa) as deletedCount
+					`;
+					const initialDeleteParams: IDataObject = { staffId };
+					try {
+						const initialDeleteResults = await runCypherQuery.call(this, session, initialDeleteQuery, initialDeleteParams, true, i);
+						totalDeletedCount = Number(initialDeleteResults[0]?.json?.deletedCount || 0);
+						this.logger.debug(`Initially deleted ${totalDeletedCount} existing availability records for staff ${staffId}`);
+					} catch (deleteError) {
+						throw parseNeo4jError(node, deleteError, `Failed to delete existing availability for staff ${staffId}`);
+					}
+					// --- MODIFICATION END ---
+
+					// 9. 在單一事務中處理可用時間
+					// totalDeletedCount is now declared before the loop
 					let totalCreatedCount = 0;
 					let processedCount = 0;
 
@@ -264,127 +281,63 @@ export class Neo4jSetStaffAvailability implements INodeType {
 						count: availabilityData.length
 					});
 
+					// --- MODIFICATION START: Collect data for batch create ---
+					const batchCreateParams: any[] = [];
 					for (const availabilityItem of availabilityData) {
 						processedCount++;
 						const isException = availabilityItem.type === 'EXCEPTION';
-
-						this.logger.debug(`Processing availability type ${availabilityItem.type}`, {
+						this.logger.debug(`Preparing availability type ${availabilityItem.type} for batch create`, {
 							staffId,
 							item: availabilityItem
 						});
 
-						// 刪除現有可用時間
-						let deleteQuery;
-						let deleteParams: IDataObject;
+						const startTime = toNeo4jTimeString(availabilityItem.start_time);
+						const endTime = toNeo4jTimeString(availabilityItem.end_time);
+
+						const params: IDataObject = {
+							staffId: staffId, // Ensure staffId is in each item for UNWIND
+							type: availabilityItem.type,
+							startTime: startTime,
+							endTime: endTime,
+						};
 
 						if (isException) {
-							// 對於例外情況，根據日期刪除
-							deleteQuery = `
-								MATCH (st:Staff {staff_id: $staffId})-[r:HAS_AVAILABILITY]->(sa:StaffAvailability)
-								WHERE sa.type = 'EXCEPTION' AND sa.date = $date
-								DELETE r, sa
-								RETURN count(r) as deletedCount
-							`;
-							deleteParams = {
-								staffId,
-								date: availabilityItem.date,
-							};
+							params.date = availabilityItem.date;
+							params.reason = availabilityItem.reason || '';
 						} else {
-							// 對於排班，根據週幾刪除
-							deleteQuery = `
-								MATCH (st:Staff {staff_id: $staffId})-[r:HAS_AVAILABILITY]->(sa:StaffAvailability)
-								WHERE sa.type = 'SCHEDULE' AND sa.day_of_week = $dayOfWeek
-								DELETE r, sa
-								RETURN count(r) as deletedCount
-							`;
-							deleteParams = {
-								staffId,
-								dayOfWeek: neo4j.int(availabilityItem.day_of_week),
-							};
+							params.dayOfWeek = neo4j.int(availabilityItem.day_of_week);
 						}
-
-						const deleteResults = await runCypherQuery.call(this, session, deleteQuery, deleteParams, true, i);
-						const deletedCount = Number(deleteResults[0]?.json?.deletedCount || 0);
-						totalDeletedCount += deletedCount;
-						this.logger.debug(`Deleted ${deletedCount} existing availability records for ${isException ? 'date ' + availabilityItem.date : 'day ' + availabilityItem.day_of_week}`, {
-							staffId
-						});
-
-						// 創建新的可用時間
-						let createQuery;
-						let createParams: IDataObject;
-
-						if (isException) {
-							// 創建例外情況
-							createQuery = `
-								MATCH (st:Staff {staff_id: $staffId})
-								CREATE (st)-[:HAS_AVAILABILITY]->(sa:StaffAvailability {
-									staff_id: $staffId,
-									type: 'EXCEPTION',
-									date: date($date),
-									reason: $reason,
-									start_time: time($startTime),
-									end_time: time($endTime),
-									created_at: datetime()
-								})
-								RETURN sa {
-									.staff_id,
-									.type,
-									date: toString(sa.date),
-									reason: sa.reason,
-									start_time: toString(sa.start_time),
-									end_time: toString(sa.end_time)
-								} AS availability
-							`;
-
-							const startTime = toNeo4jTimeString(availabilityItem.start_time);
-							const endTime = toNeo4jTimeString(availabilityItem.end_time);
-
-							createParams = {
-								staffId,
-								date: availabilityItem.date,
-								reason: availabilityItem.reason || '',
-								startTime,
-								endTime,
-							};
-						} else {
-							// 創建常規排班
-							createQuery = `
-								MATCH (st:Staff {staff_id: $staffId})
-								CREATE (st)-[:HAS_AVAILABILITY]->(sa:StaffAvailability {
-									staff_id: $staffId,
-									type: 'SCHEDULE',
-									day_of_week: $dayOfWeek,
-									start_time: time($startTime),
-									end_time: time($endTime),
-									created_at: datetime()
-								})
-								RETURN sa {
-									.staff_id,
-									.type,
-									day_of_week: toInteger(sa.day_of_week),
-									start_time: toString(sa.start_time),
-									end_time: toString(sa.end_time)
-								} AS availability
-							`;
-
-							const startTime = toNeo4jTimeString(availabilityItem.start_time);
-							const endTime = toNeo4jTimeString(availabilityItem.end_time);
-
-							createParams = {
-								staffId,
-								dayOfWeek: neo4j.int(availabilityItem.day_of_week),
-								startTime,
-								endTime,
-							};
-						}
-
-						const createResults = await runCypherQuery.call(this, session, createQuery, createParams, true, i);
-						totalCreatedCount += createResults.length;
-						this.logger.debug(`Created availability record for ${isException ? 'date ' + availabilityItem.date : 'day ' + availabilityItem.day_of_week}`, {
-							staffId
-						});
+						batchCreateParams.push(params);
 					}
+					// --- MODIFICATION END ---
+
+					// --- MODIFICATION START: Execute batch create after loop ---
+					if (batchCreateParams.length > 0) {
+						const batchCreateQuery = `
+							UNWIND $batchData AS props
+							MATCH (st:Staff {staff_id: props.staffId})
+							CREATE (st)-[:HAS_AVAILABILITY]->(sa:StaffAvailability {
+								staff_id: props.staffId,
+								type: props.type,
+								date: CASE props.type WHEN 'EXCEPTION' THEN date(props.date) ELSE null END,
+								day_of_week: CASE props.type WHEN 'SCHEDULE' THEN props.dayOfWeek ELSE null END,
+								reason: props.reason,
+								start_time: time(props.startTime),
+								end_time: time(props.endTime),
+								created_at: datetime()
+							})
+							RETURN count(sa) as createdCount // Return total count
+						`;
+						const batchParams: IDataObject = { batchData: batchCreateParams };
+
+						this.logger.debug(`Executing batch create for ${batchCreateParams.length} availability records`);
+						const batchCreateResults = await runCypherQuery.call(this, session, batchCreateQuery, batchParams, true, i);
+						totalCreatedCount = batchCreateResults.length; // Result rows = created nodes
+						this.logger.debug(`Batch created ${totalCreatedCount} new availability records`);
+					} else {
+						this.logger.debug('No availability data to create.');
+					}
+					// --- MODIFICATION END ---
 
 					// 提交事務
 					this.logger.info(`Successfully processed ${processedCount} availability entries`, {

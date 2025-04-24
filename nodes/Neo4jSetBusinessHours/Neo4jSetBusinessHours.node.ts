@@ -227,44 +227,46 @@ export class Neo4jSetBusinessHours implements INodeType {
 					const deletedCount = deleteResults[0]?.json?.deletedCount || 0;
 					this.logger.debug(`Deleted ${deletedCount} existing business hours`);
 
-					// 只有當有營業時間資料時才創建新記錄
+					// --- MODIFICATION START: Batch create records ---
 					let hoursSetCount = 0;
 					if (hoursData.length > 0) {
-						// 創建新的營業時間，使用 toNeo4jTimeString 格式化時間
-						for (const hourData of hoursData) {
-							const createQuery = `
-								MATCH (b:Business {business_id: $businessId})
-								CREATE (bh:BusinessHours {
-									business_id: $businessId,
-									day_of_week: $dayOfWeek,
-									start_time: time($startTime),
-									end_time: time($endTime),
-									created_at: datetime()
-								})
-								MERGE (b)-[:HAS_HOURS]->(bh)
-								RETURN count(bh) as createdCount
-							`;
+						// 準備批次創建的參數列表
+						const batchCreateParams = hoursData.map(hourData => ({
+							businessId: businessId, // 確保 businessId 在每個 map 項目中
+							dayOfWeek: neo4j.int(hourData.day_of_week),
+							startTime: toNeo4jTimeString(hourData.start_time),
+							endTime: toNeo4jTimeString(hourData.end_time)
+						}));
 
-							const startTime = toNeo4jTimeString(hourData.start_time);
-							const endTime = toNeo4jTimeString(hourData.end_time);
+						// 批次創建 Cypher 查詢
+						const batchCreateQuery = `
+							UNWIND $batchData AS hourProps
+							MATCH (b:Business {business_id: hourProps.businessId})
+							CREATE (bh:BusinessHours {
+								business_id: hourProps.businessId,
+								day_of_week: hourProps.dayOfWeek,
+								start_time: time(hourProps.startTime),
+								end_time: time(hourProps.endTime),
+								created_at: datetime()
+							})
+							MERGE (b)-[:HAS_HOURS]->(bh)
+							WITH count(bh) AS totalCreated RETURN totalCreated
+						`;
 
-							const createParams: IDataObject = {
-								businessId,
-								dayOfWeek: neo4j.int(hourData.day_of_week),
-								startTime,
-								endTime
-							};
+						const batchParams: IDataObject = { batchData: batchCreateParams };
 
-							this.logger.debug(`Creating business hours record for day ${hourData.day_of_week}`);
-							const createResults = await runCypherQuery.call(this, session, createQuery, createParams, true, i);
-							const createdCount = createResults[0]?.json?.createdCount || 0;
-							hoursSetCount += (typeof createdCount === 'number' ? createdCount : 0);
-						}
+						this.logger.debug(`Executing batch create for ${batchCreateParams.length} business hours records`);
+						const batchCreateResults = await runCypherQuery.call(this, session, batchCreateQuery, batchParams, true, i);
 
-						this.logger.debug(`Created ${hoursSetCount} new business hours`);
+						// 獲取總創建數量 (注意: UNWIND 會為每個創建的節點返回一行)
+						const createdCountResult = batchCreateResults[0]?.json?.totalCreated;
+						hoursSetCount = typeof createdCountResult === 'number' ? createdCountResult : (typeof createdCountResult === 'string' ? parseInt(createdCountResult, 10) : 0); // 確保轉換為數字
+
+						this.logger.debug(`Batch created ${hoursSetCount} new business hours`);
 					} else {
 						this.logger.debug(`Skipping create query for businessId: ${businessId} as hoursData is empty.`);
 					}
+					// --- MODIFICATION END ---
 
 					returnData.push({
 						json: {
