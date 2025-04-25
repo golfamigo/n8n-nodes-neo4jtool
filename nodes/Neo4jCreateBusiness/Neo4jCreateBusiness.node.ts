@@ -29,7 +29,7 @@ export class Neo4jCreateBusiness implements INodeType {
 		group: ['database'],
 		version: 1,
 		subtitle: '={{$parameter["name"]}}', // Show business name in subtitle
-		description: '創建一個新的商家記錄並關聯所有者。', // From TaskInstructions.md
+		description: '創建一個新的商家記錄並關聯所有者, Booking Model只能設定為ResourceOnly, StaffOnly, StaffAndResource, TimeOnly 這4種模式，請依照商家的型態設定。', // From TaskInstructions.md
 		defaults: {
 			name: 'Neo4j Create Business',
 		},
@@ -182,7 +182,7 @@ export class Neo4jCreateBusiness implements INodeType {
 					const email = this.getNodeParameter('email', i, '') as string;
 					const description = this.getNodeParameter('description', i, '') as string;
 					const booking_mode = this.getNodeParameter('booking_mode', i, 'TimeOnly') as string; // Get booking_mode from parameters
-this.logger.info(`Creating business with booking_mode: ${booking_mode}`);
+					this.logger.info(`Creating business with booking_mode: ${booking_mode}`);
 
 					// ADDED: Validate booking_mode
 					if (!validBookingModes.includes(booking_mode)) {
@@ -196,7 +196,7 @@ this.logger.info(`Creating business with booking_mode: ${booking_mode}`);
 					this.logger.info(`- name: ${name}`);
 					this.logger.info(`- type: ${type}`);
 					this.logger.info(`- booking_mode: ${booking_mode}`);
-					
+
 					const query = `
 					MATCH (owner:User {id: $ownerUserId})
 					CREATE (b:Business {
