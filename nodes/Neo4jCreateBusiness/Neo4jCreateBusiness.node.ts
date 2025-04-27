@@ -29,7 +29,7 @@ export class Neo4jCreateBusiness implements INodeType {
 		group: ['database'],
 		version: 1,
 		subtitle: '={{$parameter["name"]}}', // Show business name in subtitle
-		description: '創建一個新的商家記錄並關聯所有者, Booking Model只能設定為ResourceOnly, StaffOnly, StaffAndResource, TimeOnly 這4種模式，請依照商家的型態設定。', // From TaskInstructions.md
+		description: '創建一個新的商家記錄並關聯所有者, Booking Mode只能設定為ResourceOnly, StaffOnly, StaffAndResource, TimeOnly 這4種模式，請依照商家的型態設定。', // From TaskInstructions.md
 		defaults: {
 			name: 'Neo4j Create Business',
 		},
@@ -130,7 +130,7 @@ export class Neo4jCreateBusiness implements INodeType {
 					],
 					required: true,
 					default: 'TimeOnly',
-					description: '商家的預約檢查模式',
+					description: '商家的預約檢查模式，Booking Mode只能設定為ResourceOnly, StaffOnly, StaffAndResource, TimeOnly 這4種模式，請依照商家的型態設定。',
 				},
 		],
 	};
