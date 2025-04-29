@@ -11,6 +11,7 @@ Neo4j is a native graph database platform, built from the ground up to leverage 
 [Credentials](#credentials)
 [Compatibility](#compatibility)
 [Resources](#resources)
+[Development Notes](#development-notes)
 
 ## Installation
 
@@ -46,3 +47,8 @@ To use these nodes, you need to configure Neo4j credentials named `neo4jApi` in 
 *   [n8n community nodes documentation](https://docs.n8n.io/integrations/community-nodes/)
 *   [Neo4j Documentation](https://neo4j.com/docs/)
 *   [Neo4j Cypher Manual](https://neo4j.com/docs/cypher-manual/current/)
+
+## Development Notes
+
+*   **2025-04-29:** Generated `Docs/NodeDescriptions.md` containing descriptions for all nodes based on their `INodeTypeDescription` and properties. This file serves as a quick reference for node parameters and functionality.
+*   **2025-04-29:** Updated the format of the `description` field for the `Neo4jCreateBooking` node in `Docs/NodeDescriptions.md` to be a single line with `\n` for line breaks.
