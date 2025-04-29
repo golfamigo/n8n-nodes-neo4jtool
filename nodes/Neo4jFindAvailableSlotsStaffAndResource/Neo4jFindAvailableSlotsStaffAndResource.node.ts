@@ -42,7 +42,7 @@ export class Neo4jFindAvailableSlotsStaffAndResource implements INodeType {
 		group: ['database'],
 		version: 1,
 		subtitle: 'StaffAndResource mode for Business {{$parameter["businessId"]}}',
-		description: '根據時間、員工和資源可用性查找可用的預約時間段,businessId: 要查詢可用時段的商家 ID (UUID),serviceId: 要預約的服務 ID (UUID) (用於獲取時長),startDateTime: 查詢範圍的開始時間 (ISO 8601 格式, 需含時區),endDateTime: 查詢範圍的結束時間 (ISO 8601 格式, 需含時區),intervalMinutes: 生成潛在預約時段的時間間隔（分鐘）,requiredStaffId: 指定員工的 ID (UUID)（在 StaffAndResource 模式下必填）,requiredResourceType: 需要的資源類型 ID (UUID)（在 StaffAndResource 模式下必填）,requiredResourceCapacity: 所需資源的數量',
+		description: '根據時間、員工和資源可用性查找可用的預約時間段,businessId: 要查詢可用時段的商家 ID (UUID),serviceId: 要預約的服務 ID (UUID) (用於獲取時長),startDateTime: 查詢範圍的開始時間 (ISO 8601 格式, 需含時區),endDateTime: 查詢範圍的結束時間 (ISO 8601 格式, 需含時區),intervalMinutes: 生成潛在預約時段的時間間隔（分鐘）,requiredStaffId: 指定員工的 ID (UUID)（在 StaffAndResource 模式下必填）,requiredResourceTypeId: 需要的資源類型 ID (UUID)（在 StaffAndResource 模式下必填）,requiredResourceCapacity: 所需資源的數量',
 		defaults: {
 			name: 'Neo4j Find Slots StaffAndResource',
 		},
@@ -136,7 +136,7 @@ export class Neo4jFindAvailableSlotsStaffAndResource implements INodeType {
 			const endDateTimeStr = this.getNodeParameter('endDateTime', itemIndex, '') as string;
 			const intervalMinutes = this.getNodeParameter('intervalMinutes', itemIndex, 15) as number;
 			const requiredStaffId = this.getNodeParameter('requiredStaffId', itemIndex, '') as string;
-			const requiredResourceType = this.getNodeParameter('requiredResourceType', itemIndex, '') as string;
+			const requiredResourceTypeId = this.getNodeParameter('requiredResourceTypeId', itemIndex, '') as string;
 			const requiredResourceCapacity = this.getNodeParameter('requiredResourceCapacity', itemIndex, 1) as number;
 
 			// 驗證必填參數
@@ -144,8 +144,8 @@ export class Neo4jFindAvailableSlotsStaffAndResource implements INodeType {
 				throw new NodeOperationError(node, 'StaffAndResource 模式下必須指定 Required Staff ID。', { itemIndex });
 			}
 
-			if (!requiredResourceType) {
-				throw new NodeOperationError(node, 'StaffAndResource 模式下必須指定 Required Resource Type。', { itemIndex });
+			if (!requiredResourceTypeId) {
+				throw new NodeOperationError(node, 'StaffAndResource 模式下必須指定 Required Resource Type ID。', { itemIndex });
 			}
 
 			// 記錄接收到的參數
@@ -156,7 +156,7 @@ export class Neo4jFindAvailableSlotsStaffAndResource implements INodeType {
 				endDateTime: endDateTimeStr,
 				intervalMinutes,
 				requiredStaffId,
-				requiredResourceType,
+				requiredResourceTypeId,
 				requiredResourceCapacity,
 			});
 
@@ -218,7 +218,7 @@ export class Neo4jFindAvailableSlotsStaffAndResource implements INodeType {
 				MATCH (st)-[:CAN_PROVIDE]->(s)
 
 				// 確認資源類型存在
-				MATCH (rt:ResourceType {type_id: $requiredResourceType, business_id: $businessId})
+				MATCH (rt:ResourceType {type_id: $requiredResourceTypeId, business_id: $businessId})
 
 				RETURN s.duration_minutes AS durationMinutes,
 				       hoursList,
@@ -231,7 +231,7 @@ export class Neo4jFindAvailableSlotsStaffAndResource implements INodeType {
 				businessId,
 				serviceId,
 				requiredStaffId,
-				requiredResourceType
+				requiredResourceTypeId
 			};
 			let durationMinutes: number | null = null;
 			let businessHours: any[] = [];
@@ -245,7 +245,7 @@ export class Neo4jFindAvailableSlotsStaffAndResource implements INodeType {
 					businessId,
 					serviceId,
 					requiredStaffId,
-					requiredResourceType
+					requiredResourceTypeId
 				});
 
 				if (!session) {
@@ -255,7 +255,7 @@ export class Neo4jFindAvailableSlotsStaffAndResource implements INodeType {
 				const preResult = await session.run(preQuery, preQueryParams);
 
 				if (preResult.records.length === 0) {
-					throw new NodeOperationError(node, `找不到商家 ID '${businessId}'，或服務 ID '${serviceId}'，或員工 ID '${requiredStaffId}'，或資源類型 ID '${requiredResourceType}'。`, { itemIndex });
+					throw new NodeOperationError(node, `找不到商家 ID '${businessId}'，或服務 ID '${serviceId}'，或員工 ID '${requiredStaffId}'，或資源類型 ID '${requiredResourceTypeId}'。`, { itemIndex });
 				}
 
 				const record = preResult.records[0];
@@ -271,7 +271,7 @@ export class Neo4jFindAvailableSlotsStaffAndResource implements INodeType {
 				}
 
 				if (totalCapacity === null || totalCapacity < requiredResourceCapacity) {
-					throw new NodeOperationError(node, `資源類型 '${resourceTypeName || requiredResourceType}' 的總容量 (${totalCapacity}) 小於所需容量 (${requiredResourceCapacity})`, { itemIndex });
+					throw new NodeOperationError(node, `資源類型 '${resourceTypeName || requiredResourceTypeId}' 的總容量 (${totalCapacity}) 小於所需容量 (${requiredResourceCapacity})`, { itemIndex });
 				}
 
 				this.logger.debug('獲取到的商家信息:', {
@@ -308,7 +308,7 @@ export class Neo4jFindAvailableSlotsStaffAndResource implements INodeType {
 						message: "未找到潛在時段 - 請檢查營業時間和日期範圍",
 						mode: "StaffAndResource",
 						staffName: staffName || "未知員工",
-						resourceType: resourceTypeName || requiredResourceType,
+						resourceType: resourceTypeName || requiredResourceTypeId,
 						resourceCapacity: requiredResourceCapacity
 					},
 					pairedItem: { item: itemIndex },
@@ -373,7 +373,7 @@ export class Neo4jFindAvailableSlotsStaffAndResource implements INodeType {
 				WITH b, st, slotStart, slotEnd, durationMinutesVal, serviceDuration, toString(slotStart) AS slotStartStr, st.name AS staffName // Added durationMinutesVal
 
 				${generateResourceAvailabilityQuery(
-					'$requiredResourceType',
+					'$requiredResourceTypeId',
 					'slotStart',
 					'durationMinutesVal', // Changed from '$durationMinutes'
 					'$requiredResourceCapacity',
@@ -404,7 +404,7 @@ export class Neo4jFindAvailableSlotsStaffAndResource implements INodeType {
 				serviceId,
 				potentialSlots,
 				requiredStaffId,
-				requiredResourceType,
+				requiredResourceTypeId,
 				requiredResourceCapacity: neo4j.int(requiredResourceCapacity),
 				durationMinutes: neo4j.int(durationMinutes) // Re-added durationMinutes parameter
 			};
@@ -468,7 +468,7 @@ export class Neo4jFindAvailableSlotsStaffAndResource implements INodeType {
 						staffName: staffName || "未知員工",
 						staffId: requiredStaffId,
 						resourceTypeName: resourceTypeName || "未知資源類型",
-						resourceTypeId: requiredResourceType,
+						resourceTypeId: requiredResourceTypeId,
 						resourceCapacity: requiredResourceCapacity,
 						totalCapacity,
 						resourceDescription: resourceTypeDescription || ""

@@ -41,7 +41,7 @@ export class Neo4jFindAvailableSlotsResourceOnly implements INodeType {
 		group: ['database'],
 		version: 1,
 		subtitle: 'ResourceOnly mode for Business {{$parameter["businessId"]}}',
-		description: '根據時間和資源可用性查找可用的預約時間段。所有ID格式為 UUID(例如: ecadf8cb-f865-41d2-a1a0-db4311222cdc)，Required_Resource_TypeRequired_Resource_Type：所需資源類型的唯一識別碼 (Type ID)，格式為 UUID (例如: 17120d3b-7af6-4501-ada6-b2ec7193b6b9)，不是資源名稱。,businessId: 要查詢可用時段的商家 ID (UUID),serviceId: 要預約的服務 ID (UUID) (用於獲取時長),startDateTime: 查詢範圍的開始時間 (ISO 8601 格式, 需含時區),endDateTime: 查詢範圍的結束時間 (ISO 8601 格式, 需含時區),intervalMinutes: 生成潛在預約時段的時間間隔（分鐘）,requiredResourceType: 所需資源類型的唯一識別碼 (Type ID) (UUID)，不是名稱,requiredResourceCapacity: 所需資源數量（預設為 1）。',
+		description: '根據時間和資源可用性查找可用的預約時間段。所有ID格式為 UUID(例如: ecadf8cb-f865-41d2-a1a0-db4311222cdc)，Required_Resource_TypeRequired_Resource_Type：所需資源類型的唯一識別碼 (Type ID)，格式為 UUID (例如: 17120d3b-7af6-4501-ada6-b2ec7193b6b9)，不是資源名稱。,businessId: 要查詢可用時段的商家 ID (UUID),serviceId: 要預約的服務 ID (UUID) (用於獲取時長),startDateTime: 查詢範圍的開始時間 (ISO 8601 格式, 需含時區),endDateTime: 查詢範圍的結束時間 (ISO 8601 格式, 需含時區),intervalMinutes: 生成潛在預約時段的時間間隔（分鐘）,requiredResourceTypeId: 所需資源類型的唯一識別碼 (Type ID) (UUID)，不是名稱,requiredResourceCapacity: 所需資源數量（預設為 1）。',
 		defaults: {
 			name: 'Neo4j Find Slots ResourceOnly',
 		},
@@ -126,12 +126,12 @@ export class Neo4jFindAvailableSlotsResourceOnly implements INodeType {
 			const startDateTimeStr = this.getNodeParameter('startDateTime', itemIndex, '') as string;
 			const endDateTimeStr = this.getNodeParameter('endDateTime', itemIndex, '') as string;
 			const intervalMinutes = this.getNodeParameter('intervalMinutes', itemIndex, 15) as number;
-			const requiredResourceType = this.getNodeParameter('requiredResourceType', itemIndex, '') as string;
+			const requiredResourceTypeId = this.getNodeParameter('requiredResourceTypeId', itemIndex, '') as string;
 			const requiredResourceCapacity = this.getNodeParameter('requiredResourceCapacity', itemIndex, 1) as number;
 
 			// 驗證必填參數
-			if (!requiredResourceType) {
-				throw new NodeOperationError(node, 'ResourceOnly 模式下必須指定 Required Resource Type。', { itemIndex });
+			if (!requiredResourceTypeId) {
+				throw new NodeOperationError(node, 'ResourceOnly 模式下必須指定 Required Resource Type ID。', { itemIndex });
 			}
 
 			// 記錄接收到的參數
@@ -141,7 +141,7 @@ export class Neo4jFindAvailableSlotsResourceOnly implements INodeType {
 				startDateTime: startDateTimeStr,
 				endDateTime: endDateTimeStr,
 				intervalMinutes,
-				requiredResourceType,
+				requiredResourceTypeId,
 				requiredResourceCapacity,
 			});
 
@@ -221,7 +221,7 @@ export class Neo4jFindAvailableSlotsResourceOnly implements INodeType {
 
 				// 獲取資源類型信息 - 同時支持直接屬性關聯和 BELONGS_TO 關係
 				MATCH (rt:ResourceType)
-				WHERE rt.type_id = $requiredResourceType AND
+				WHERE rt.type_id = $requiredResourceTypeId AND
 				      (rt.business_id = $businessId OR EXISTS((rt)-[:BELONGS_TO]->(b)))
 
 				RETURN s.duration_minutes AS durationMinutes,
@@ -233,7 +233,7 @@ export class Neo4jFindAvailableSlotsResourceOnly implements INodeType {
 			const preQueryParams = {
 				businessId,
 				serviceId,
-				requiredResourceType
+				requiredResourceTypeId
 			};
 
 			let durationMinutes: number | null = null;
@@ -250,7 +250,7 @@ export class Neo4jFindAvailableSlotsResourceOnly implements INodeType {
 				const preResult = await session.run(preQuery, preQueryParams);
 
 				if (preResult.records.length === 0) {
-					throw new NodeOperationError(node, `找不到商家 ID '${businessId}'，或服務 ID '${serviceId}'，或資源類型的唯一識別碼 Type ID '${requiredResourceType}'。`, { itemIndex });
+					throw new NodeOperationError(node, `找不到商家 ID '${businessId}'，或服務 ID '${serviceId}'，或資源類型的唯一識別碼 Type ID '${requiredResourceTypeId}'。`, { itemIndex });
 				}
 
 				const record = preResult.records[0];
@@ -265,7 +265,7 @@ export class Neo4jFindAvailableSlotsResourceOnly implements INodeType {
 				}
 
 				if (totalCapacity === null || totalCapacity < requiredResourceCapacity) {
-					throw new NodeOperationError(node, `資源類型 '${resourceTypeName || requiredResourceType}' 的總容量 (${totalCapacity}) 小於所需容量 (${requiredResourceCapacity})`, { itemIndex });
+					throw new NodeOperationError(node, `資源類型 '${resourceTypeName || requiredResourceTypeId}' 的總容量 (${totalCapacity}) 小於所需容量 (${requiredResourceCapacity})`, { itemIndex });
 				}
 
 				this.logger.debug('獲取到的商家信息:', {
@@ -333,8 +333,8 @@ export class Neo4jFindAvailableSlotsResourceOnly implements INodeType {
 						filteredOutSlots: 0,
 						message: "未找到潛在時段 - 請檢查營業時間和日期範圍",
 						mode: "ResourceOnly",
-						resourceType: resourceTypeName || requiredResourceType,
-						resourceTypeId: requiredResourceType,
+						resourceType: resourceTypeName || requiredResourceTypeId,
+						resourceTypeId: requiredResourceTypeId,
 						resourceCapacity: requiredResourceCapacity,
 						totalCapacity
 					},
@@ -367,7 +367,7 @@ export class Neo4jFindAvailableSlotsResourceOnly implements INodeType {
 					WITH b, s, slotStart, slotEnd, durationMinutesVal, serviceDuration, toString(slotStart) AS slotStartStr // Added durationMinutesVal
 
 					${generateResourceAvailabilityQuery(
-							'$requiredResourceType',
+							'$requiredResourceTypeId',
 							'slotStart',
 							'durationMinutesVal', // Changed from 'serviceDuration'
 							'$requiredResourceCapacity',
@@ -388,7 +388,7 @@ export class Neo4jFindAvailableSlotsResourceOnly implements INodeType {
 					businessId,
 					serviceId,
 					potentialSlots,
-					requiredResourceType,
+					requiredResourceTypeId,
 					requiredResourceCapacity: neo4j.int(requiredResourceCapacity),
 					durationMinutes: neo4j.int(durationMinutes),  // 確保參數中包含durationMinutes
 					// Removed redundant serviceDuration parameter
@@ -399,7 +399,7 @@ export class Neo4jFindAvailableSlotsResourceOnly implements INodeType {
 					potentialSlotsCount: potentialSlots.length,
 					firstSlot: potentialSlots.length > 0 ? potentialSlots[0] : null,
 					lastSlot: potentialSlots.length > 0 ? potentialSlots[potentialSlots.length - 1] : null,
-					requiredResourceType,
+					requiredResourceTypeId,
 					requiredResourceCapacity,
 					durationMinutes,
 					// serviceDuration: durationMinutes, // Removed as it's not used directly in params
@@ -414,7 +414,7 @@ export class Neo4jFindAvailableSlotsResourceOnly implements INodeType {
 					potentialSlotsCount: potentialSlots.length,
 					firstSlot: potentialSlots.length > 0 ? potentialSlots[0] : null,
 					lastSlot: potentialSlots.length > 0 ? potentialSlots[potentialSlots.length - 1] : null,
-					requiredResourceType,
+					requiredResourceTypeId,
 					requiredResourceCapacity
 				});
 
@@ -472,8 +472,8 @@ export class Neo4jFindAvailableSlotsResourceOnly implements INodeType {
 						totalPotentialSlots: potentialSlots.length,
 						filteredOutSlots: potentialSlots.length - availableSlots.length,
 						mode: "ResourceOnly",
-						resourceType: resourceTypeName || requiredResourceType,
-						resourceTypeId: requiredResourceType,
+						resourceType: resourceTypeName || requiredResourceTypeId,
+						resourceTypeId: requiredResourceTypeId,
 						resourceCapacity: requiredResourceCapacity,
 						totalCapacity,
 						resourceDescription: resourceTypeDescription || ""
