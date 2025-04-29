@@ -47,7 +47,7 @@ export class Neo4jSetBusinessHours implements INodeType {
 		group: ['database'],
 		version: 1,
 		subtitle: 'for Business {{$parameter["businessId"]}}',
-		description: '設定或更新指定商家的營業時間 (會覆蓋舊設定)格式: [{"day_of_week": 1, "start_time": "09:00", "end_time": "17:00"}, ...] (時間為 HH:MM 格式)。',
+		description: '設定或更新指定商家的營業時間 (會覆蓋舊設定)格式: [{"day_of_week": 1, "start_time": "09:00", "end_time": "17:00"}, ...] (時間為 HH:MM 格式)。,businessId: 要設定營業時間的商家 ID (UUID),hoursData: 包含每天營業時間的 JSON 陣列。格式必須是 day_of_week, start_time, end_time。。',
 		defaults: {
 			name: 'Neo4j Set Business Hours',
 		},

@@ -29,7 +29,7 @@ export class Neo4jUpdateUser implements INodeType {
 		group: ['database'],
 		version: 1,
 		subtitle: '={{$parameter["userId"]}}', // Show internal user ID
-		description: '根據內部 User ID 更新用戶資訊。', // Changed
+		description: '根據內部 User ID 更新用戶資訊。,userId: 要更新的用戶內部 ID (UUID),name: 新的用戶姓名 (可選),email: 新的用戶電子郵件 (可選),phone: 新的用戶電話號碼 (可選),notification_enabled: Whether notifications are enabled for the user (optional)。', // Changed
 		defaults: {
 			name: 'Neo4j Update User',
 		},

@@ -29,7 +29,7 @@ export class Neo4jUpdateService implements INodeType {
 		group: ['database'],
 		version: 1,
 		subtitle: '={{$parameter["serviceId"]}}', // Show serviceId in subtitle
-		description: '根據 service_id 更新服務資訊。', // From TaskInstructions.md
+		description: '根據 service_id 更新服務資訊。,serviceId: 要更新的服務 ID (UUID),name: 新的服務名稱 (可選),duration_minutes: 新的服務持續時間（分鐘）(可選),description: 新的服務描述 (可選),price: 新的服務價格（整數，例如分）(可選)。', // From TaskInstructions.md
 		defaults: {
 			name: 'Neo4j Update Service',
 		},

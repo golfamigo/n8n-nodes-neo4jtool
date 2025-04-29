@@ -21,11 +21,11 @@ export class Neo4jFindBusinessByName implements INodeType {
 	description: INodeTypeDescription = {
 		displayName: 'Neo4j Find Business by Name',
 		name: 'neo4jFindBusinessByName',
-		icon: 'file:neo4j.svg', // Path relative to this file
+		icon: 'file:../neo4j/neo4j.svg',
 		group: ['database'],
 		version: 1,
 		subtitle: 'Find by Name', // Static subtitle
-		description: '根據名稱模糊查找商家 (Business) 節點。',
+		description: '根據名稱模糊查找商家 (Business) 。,searchTerm: 用於商家名稱模糊匹配的關鍵字。',
 		defaults: {
 			name: 'Neo4j Find Business',
 		},

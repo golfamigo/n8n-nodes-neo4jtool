@@ -29,7 +29,7 @@ export class Neo4jFindUserByExternalId implements INodeType {
 		group: ['database'],
 		version: 1,
 		subtitle: '={{$parameter["externalId"]}}', // Show externalId in subtitle
-		description: '根據 External ID 查找用戶。', // From TaskInstructions.md
+		description: '根據 External ID 查找用戶。,externalId: The External ID of the user to find', // From TaskInstructions.md
 		defaults: {
 			name: 'Neo4j Find User',
 		},

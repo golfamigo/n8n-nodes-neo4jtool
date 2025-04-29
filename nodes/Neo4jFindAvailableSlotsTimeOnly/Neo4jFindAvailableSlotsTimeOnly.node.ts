@@ -36,7 +36,7 @@ export class Neo4jFindAvailableSlotsTimeOnly implements INodeType {
 		group: ['database'],
 		version: 1,
 		subtitle: 'TimeOnly mode for Business {{$parameter["businessId"]}}',
-		description: '根據時間查找可用的預約時間段 (僅考慮時間衝突)',
+		description: '根據時間查找可用的預約時間段 (僅考慮時間衝突),businessId: 要查詢可用時段的商家 ID (UUID),serviceId: 要預約的服務 ID (UUID) (用於獲取時長),startDateTime: 查詢範圍的開始時間 (ISO 8601 格式, 需含時區),endDateTime: 查詢範圍的結束時間 (ISO 8601 格式, 需含時區),intervalMinutes: 生成潛在預約時段的時間間隔（分鐘）',
 		defaults: {
 			name: 'Neo4j Find Slots TimeOnly',
 		},

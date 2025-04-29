@@ -29,7 +29,7 @@ export class Neo4jGetBusinessHours implements INodeType {
 		group: ['database'],
 		version: 1,
 		subtitle: 'for Business {{$parameter["businessId"]}}',
-		description: '獲取指定商家的營業時間列表。',
+		description: '獲取指定商家的營業時間列表。,businessId: 要獲取營業時間的商家 ID (UUID)',
 		defaults: {
 			name: 'Neo4j Get Business Hours',
 		},

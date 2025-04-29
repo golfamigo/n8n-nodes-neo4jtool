@@ -29,7 +29,7 @@ export class Neo4jDeleteCustomer implements INodeType {
 		group: ['database'],
 		version: 1,
 		subtitle: '={{$parameter["customerId"]}}', // Show customerId in subtitle
-		description: '根據 customer_id 刪除客戶及其關聯關係。', // From TaskInstructions.md
+		description: '根據 customer_id 刪除客戶及其關聯關係。,customerId: 要刪除的客戶 ID (UUID)。', // From TaskInstructions.md
 		defaults: {
 			name: 'Neo4j Delete Customer',
 		},

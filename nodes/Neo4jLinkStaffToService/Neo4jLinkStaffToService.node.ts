@@ -29,7 +29,7 @@ export class Neo4jLinkStaffToService implements INodeType {
 		group: ['database'],
 		version: 1,
 		subtitle: 'Link Staff {{$parameter["staffId"]}} to Service {{$parameter["serviceId"]}}',
-		description: '指定某個員工可以提供哪些服務。',
+		description: '指定某個員工可以提供哪些服務。,staffId: 要關聯的員工 staff_id (UUID),serviceId: 員工可以提供的服務 service_id (UUID)',
 		defaults: {
 			name: 'Neo4j Link Staff to Service',
 		},

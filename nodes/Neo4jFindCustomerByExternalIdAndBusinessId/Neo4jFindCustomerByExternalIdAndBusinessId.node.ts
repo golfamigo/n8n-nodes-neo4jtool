@@ -30,7 +30,7 @@ export class Neo4jFindCustomerByExternalIdAndBusinessId implements INodeType {
 		group: ['database'],
 		version: 1,
 		subtitle: '={{$parameter["externalId"]}} in Business {{$parameter["businessId"]}}', // Changed subtitle
-		description: '根據用戶 External ID 和商家 ID 查找客戶記錄。', // Changed
+		description: '根據用戶 External ID 和商家 ID 查找客戶記錄。,externalId: 用戶的 External ID (UUID),businessId: 客戶註冊的商家 ID (UUID)。', // Changed
 		defaults: {
 			name: 'Neo4j Find Customer', // Kept simple default name
 		},

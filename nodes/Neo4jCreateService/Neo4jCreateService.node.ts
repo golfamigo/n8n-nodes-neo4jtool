@@ -29,7 +29,7 @@ export class Neo4jCreateService implements INodeType {
 		group: ['database'],
 		version: 1,
 		subtitle: '={{$parameter["name"]}} for {{$parameter["businessId"]}}', // Show service and business ID
-		description: '為指定商家創建一個新的服務項目。', // From TaskInstructions.md
+		description: '為指定商家創建一個新的服務項目。,businessId: 提供此服務的商家 ID (UUID),name: 服務名稱,duration_minutes: 服務持續時間（分鐘）,description: 服務描述,price: 服務價格（整數，例如分）(可選)。', // From TaskInstructions.md
 		defaults: {
 			name: 'Neo4j Create Service',
 		},

@@ -29,7 +29,7 @@ export class Neo4jDeleteBooking implements INodeType {
 		group: ['database'],
 		version: 1,
 		subtitle: '={{$parameter["bookingId"]}}', // Show bookingId
-		description: '根據 booking_id 刪除預約及其關聯關係。', // From TaskInstructions.md
+		description: '根據 booking_id 刪除預約及其關聯關係。,bookingId: 要刪除的預約 ID (UUID)。', // From TaskInstructions.md
 		defaults: {
 			name: 'Neo4j Delete Booking',
 		},

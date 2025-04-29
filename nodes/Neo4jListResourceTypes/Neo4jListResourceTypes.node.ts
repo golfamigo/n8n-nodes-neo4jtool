@@ -29,7 +29,7 @@ export class Neo4jListResourceTypes implements INodeType {
 		group: ['database'],
 		version: 1,
 		subtitle: 'for Business {{$parameter["businessId"]}}', // Show businessId
-		description: '查詢指定商家下已存在的所有資源類型。', // From TaskInstructions.md
+		description: '查詢指定商家下已存在的所有資源類型。,businessId: 要查詢資源類型的商家 ID (UUID)。', // From TaskInstructions.md
 		defaults: {
 			name: 'Neo4j List Resource Types',
 		},

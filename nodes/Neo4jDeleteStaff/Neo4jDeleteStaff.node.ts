@@ -28,7 +28,7 @@ export class Neo4jDeleteStaff implements INodeType {
 		group: ['database'],
 		version: 1,
 		subtitle: '={{$parameter["staffId"]}}',
-		description: '根據 staff_id 刪除員工及其關聯關係 (例如可用性、服務能力)。',
+		description: '根據 staff_id 刪除員工及其關聯關係 (例如可用性、服務能力)。,staffId: 要刪除的員工 staff_id (UUID)。',
 		defaults: {
 			name: 'Neo4j Delete Staff',
 		},

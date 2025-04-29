@@ -29,7 +29,7 @@ export class Neo4jUpdateBusiness implements INodeType {
 		group: ['database'],
 		version: 1,
 		subtitle: '={{$parameter["businessId"]}}', // Show businessId in subtitle
-		description: '根據 business_id 更新商家資訊。', // From TaskInstructions.md
+		description: '根據 business_id 更新商家資訊。,businessId: 要更新的商家 ID (UUID),name: 新的商家名稱 (可選),type: 新的商家類型 (可選),address: 新的商家地址 (可選),phone: 新的商家聯繫電話 (可選),email: 新的商家聯繫電子郵件 (可選),description: 新的商家描述 (可選),booking_mode: 新的商家預約檢查模式 (可選)。', // From TaskInstructions.md
 		defaults: {
 			name: 'Neo4j Update Business',
 		},

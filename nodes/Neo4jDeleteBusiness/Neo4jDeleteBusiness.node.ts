@@ -29,7 +29,7 @@ export class Neo4jDeleteBusiness implements INodeType {
 		group: ['database'],
 		version: 1,
 		subtitle: '={{$parameter["businessId"]}}', // Show businessId in subtitle
-		description: '根據 business_id 刪除商家及其關聯關係。', // From TaskInstructions.md
+		description: '根據 business_id 刪除商家及其關聯關係。,businessId: 要刪除的商家 ID (UUID)。', // From TaskInstructions.md
 		defaults: {
 			name: 'Neo4j Delete Business',
 		},

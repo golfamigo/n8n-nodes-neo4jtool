@@ -29,7 +29,7 @@ export class Neo4jDeleteResource implements INodeType {
 		group: ['database'],
 		version: 1,
 		subtitle: '={{$parameter["resourceId"]}}', // Show resourceId
-		description: '根據 resource_id 刪除資源及其關聯關係。', // From TaskInstructions.md
+		description: '根據 resource_id 刪除資源及其關聯關係。,resourceId: 要刪除的資源 ID (UUID)', // From TaskInstructions.md
 		defaults: {
 			name: 'Neo4j Delete Resource',
 		},

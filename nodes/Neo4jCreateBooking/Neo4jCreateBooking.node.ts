@@ -41,7 +41,7 @@ export class Neo4jCreateBooking implements INodeType {
 		group: ['database'],
 		version: 1,
 		subtitle: 'for {{$parameter["customerId"]}} at {{$parameter["businessId"]}}',
-		description: '創建一個新的預約記錄並建立必要的關聯。',
+		description: '創建一個新的預約記錄並建立必要的關聯。,customerId: 進行預約的客戶 ID (UUID),businessId: 預約的商家 ID (UUID),serviceId: 預約的服務 ID (UUID),bookingTime: 預約開始時間 (ISO 8601 格式，需含時區),staffId: 指定服務員工 ID (UUID) (可選),resourceTypeId: 預約使用的資源類型 ID (UUID) (可選),resourceQuantity: 需要使用的資源數量 (默認為 1),notes: 預約備註 (可選)',
 		defaults: {
 			name: 'Neo4j Create Booking',
 		},
@@ -203,32 +203,32 @@ export class Neo4jCreateBooking implements INodeType {
 					}
 
 					const serviceDuration = serviceResults[0].json.serviceDuration;
-					
+
 					// 如果提供了資源類型，檢查資源可用性
 					let resourcesAvailable = true;
 					if (resourceTypeId) {
 						const resourceCheckQuery = `
 							// 獲取資源類型信息
 							MATCH (rt:ResourceType {type_id: $resourceTypeId, business_id: $businessId})
-							
+
 							// 計算預約時間段
-							WITH rt, datetime($bookingTime) AS startTime, 
+							WITH rt, datetime($bookingTime) AS startTime,
 								 datetime($bookingTime) + duration({minutes: $serviceDuration}) AS endTime
-							
+
 							// 檢查當前已使用的資源數量
 							OPTIONAL MATCH (b:Booking)-[:USES_RESOURCE]->(ru:ResourceUsage)-[:OF_TYPE]->(rt)
-							WHERE b.booking_time < endTime AND 
+							WHERE b.booking_time < endTime AND
 								  b.booking_time + duration({minutes: $serviceDuration}) > startTime
-							
+
 							// 計算可用資源
 							WITH rt, sum(COALESCE(ru.quantity, 0)) AS usedResources
 							WHERE rt.total_capacity >= usedResources + $resourceQuantity
-							
-							RETURN rt.name AS resourceName, 
+
+							RETURN rt.name AS resourceName,
 								   rt.total_capacity AS totalCapacity,
 								   rt.total_capacity - usedResources AS availableCapacity
 						`;
-						
+
 						const resourceParams: IDataObject = {
 							resourceTypeId,
 							businessId,
@@ -239,7 +239,7 @@ export class Neo4jCreateBooking implements INodeType {
 
 						const resourceResults = await runCypherQuery.call(this, session, resourceCheckQuery, resourceParams, false, i);
 						resourcesAvailable = resourceResults.length > 0;
-						
+
 						if (!resourcesAvailable) {
 							throw new NodeOperationError(node, `Not enough resources available for resource type ${resourceTypeId}. Please choose another time or reduce resource quantity.`, { itemIndex: i });
 						}
@@ -250,12 +250,12 @@ export class Neo4jCreateBooking implements INodeType {
 					const txQuery = `
 						// 使用 WITH 1 as _ 作為查詢的起點
 						WITH 1 as _
-						
+
 						// 查找客戶、商家和服務
 						MATCH (c:Customer {customer_id: $customerId})
 						MATCH (b:Business {business_id: $businessId})
 						MATCH (s:Service {service_id: $serviceId})
-						
+
 						// 創建預約記錄
 						CREATE (bk:Booking {
 							booking_id: randomUUID(),
@@ -267,12 +267,12 @@ export class Neo4jCreateBooking implements INodeType {
 							notes: $notes,
 							created_at: datetime()
 						})
-						
+
 						// 建立預約關聯
 						MERGE (c)-[:MAKES]->(bk)
 						MERGE (bk)-[:AT_BUSINESS]->(b)
 						MERGE (bk)-[:FOR_SERVICE]->(s)
-						
+
 						// 如果有員工ID，建立與員工的關聯
 						WITH bk, b, s
 						${staffId ? `
@@ -280,24 +280,24 @@ export class Neo4jCreateBooking implements INodeType {
 						MERGE (bk)-[:SERVED_BY]->(st)
 						WITH bk, b, s
 						` : ''}
-						
+
 						// 如果有資源類型，創建資源使用記錄
 						${resourceTypeId ? `
 						MATCH (rt:ResourceType {type_id: $resourceTypeId, business_id: $businessId})
-						
+
 						// 檢查資源可用性 (悲觀鎖機制)
-						WITH bk, b, s, rt, datetime($bookingTime) AS startTime, 
+						WITH bk, b, s, rt, datetime($bookingTime) AS startTime,
 							 datetime($bookingTime) + duration({minutes: $serviceDuration}) AS endTime
-							 
+
 						// 獲取當前已使用的資源數量 (使用 FOR UPDATE 鎖定這些記錄)
 						OPTIONAL MATCH (existing:Booking)-[:USES_RESOURCE]->(ru:ResourceUsage)-[:OF_TYPE]->(rt)
-						WHERE existing.booking_time < endTime AND 
+						WHERE existing.booking_time < endTime AND
 							  existing.booking_time + duration({minutes: $serviceDuration}) > startTime
 						WITH bk, b, s, rt, startTime, endTime, sum(COALESCE(ru.quantity, 0)) AS usedResources
-						
+
 						// 再次確認資源足夠 (避免競爭條件)
 						WHERE rt.total_capacity >= usedResources + $resourceQuantity
-						
+
 						// 創建資源使用記錄
 						CREATE (ru:ResourceUsage {
 							usage_id: randomUUID(),
@@ -310,7 +310,7 @@ export class Neo4jCreateBooking implements INodeType {
 						MERGE (ru)-[:OF_TYPE]->(rt)
 						WITH bk
 						` : 'WITH bk'}
-						
+
 						// 返回預約詳情
 						RETURN bk {.*} AS booking
 					`;
@@ -328,7 +328,7 @@ export class Neo4jCreateBooking implements INodeType {
 					if (staffId) {
 						txParams.staffId = staffId;
 					}
-					
+
 					if (resourceTypeId) {
 						txParams.resourceTypeId = resourceTypeId;
 						txParams.resourceQuantity = neo4j.int(resourceQuantity);

@@ -29,7 +29,7 @@ export class Neo4jCreateResourceType implements INodeType {
 		group: ['database'],
 		version: 1,
 		subtitle: 'for Business {{$parameter["businessId"]}}',
-		description: '創建資源類型以管理共享資源',
+		description: '創建資源類型以管理共享資源,businessId: 資源類型所屬的商家 ID (UUID),typeName: 資源類型名稱 (例如: 理髮椅、美甲桌),totalCapacity: 此類型資源的總數量',
 		defaults: {
 			name: 'Neo4j Create Resource Type',
 		},

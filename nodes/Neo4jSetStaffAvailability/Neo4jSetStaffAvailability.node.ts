@@ -42,7 +42,7 @@ export class Neo4jSetStaffAvailability implements INodeType {
 		group: ['database'],
 		version: 1,
 		subtitle: 'for Staff {{$parameter["staffId"]}}',
-		description: '設定或更新指定員工的可用時間。',
+		description: '設定或更新指定員工的可用時間，格式: [{"day_of_week": 1, "start_time": "09:00", "end_time": "17:00"}, ...] (時間為 HH:MM 格式)。，,staffId: 目標員工的 staff_id (UUID),availabilityData: 包含每天營業時間的 JSON 陣列，格式必須是 day_of_week, start_time, end_time。設定員工的排班和例外時間。',
 		defaults: {
 			name: 'Neo4j Set Staff Availability',
 		},

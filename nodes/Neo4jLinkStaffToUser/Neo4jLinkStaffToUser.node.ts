@@ -29,7 +29,7 @@ export class Neo4jLinkStaffToUser implements INodeType {
 		group: ['database'],
 		version: 1,
 		subtitle: 'Link Staff {{$parameter["staffId"]}} to User {{$parameter["userId"]}}',
-		description: '將現有的員工記錄關聯到一個用戶帳號。',
+		description: '將現有的員工記錄關聯到一個用戶帳號。,staffId: 要關聯的員工 staff_id (UUID),userId: 要關聯的用戶內部 ID (UUID)。',
 		defaults: {
 			name: 'Neo4j Link Staff to User',
 		},

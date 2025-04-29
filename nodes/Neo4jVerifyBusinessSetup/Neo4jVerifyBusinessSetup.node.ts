@@ -28,7 +28,7 @@ export class Neo4jVerifyBusinessSetup implements INodeType {
 		group: ['database'],
 		version: 1,
 		subtitle: 'for Business {{$parameter["businessId"]}}',
-		description: '檢查商家是否已完成所有必要設置，能夠開始接受預約',
+		description: '檢查商家是否已完成所有必要設置，能夠開始接受預約,businessId: 要檢查設置的商家 ID (UUID)',
 		defaults: {
 			name: 'Neo4j Verify Business Setup',
 		},

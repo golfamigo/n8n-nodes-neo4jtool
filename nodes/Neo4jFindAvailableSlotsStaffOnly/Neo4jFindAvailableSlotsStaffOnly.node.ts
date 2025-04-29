@@ -95,7 +95,7 @@ export class Neo4jFindAvailableSlotsStaffOnly implements INodeType {
 				type: 'string',
 				required: true,
 				default: '',
-				description: '指定員工的 ID（在 StaffOnly 模式下必填）',
+				description: '根據時間和員工可用性查找可用的預約時間段,businessId: 要查詢可用時段的商家 ID (UUID),serviceId: 要預約的服務 ID (UUID) (用於獲取時長),startDateTime: 查詢範圍的開始時間 (ISO 8601 格式, 需含時區),endDateTime: 查詢範圍的結束時間 (ISO 8601 格式, 需含時區),intervalMinutes: 生成潛在預約時段的時間間隔（分鐘）,requiredStaffId: 指定員工的 ID (UUID)（在 StaffOnly 模式下必填）',
 			},
 		],
 	};

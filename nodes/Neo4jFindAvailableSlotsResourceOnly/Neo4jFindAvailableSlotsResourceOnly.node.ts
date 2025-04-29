@@ -41,7 +41,7 @@ export class Neo4jFindAvailableSlotsResourceOnly implements INodeType {
 		group: ['database'],
 		version: 1,
 		subtitle: 'ResourceOnly mode for Business {{$parameter["businessId"]}}',
-		description: '根據時間和資源可用性查找可用的預約時間段',
+		description: '根據時間和資源可用性查找可用的預約時間段。所有ID格式為 UUID(例如: ecadf8cb-f865-41d2-a1a0-db4311222cdc)，Required_Resource_TypeRequired_Resource_Type：所需資源類型的唯一識別碼 (Type ID)，格式為 UUID (例如: 17120d3b-7af6-4501-ada6-b2ec7193b6b9)，不是資源名稱。,businessId: 要查詢可用時段的商家 ID (UUID),serviceId: 要預約的服務 ID (UUID) (用於獲取時長),startDateTime: 查詢範圍的開始時間 (ISO 8601 格式, 需含時區),endDateTime: 查詢範圍的結束時間 (ISO 8601 格式, 需含時區),intervalMinutes: 生成潛在預約時段的時間間隔（分鐘）,requiredResourceType: 所需資源類型的唯一識別碼 (Type ID) (UUID)，不是名稱,requiredResourceCapacity: 所需資源數量（預設為 1）。',
 		defaults: {
 			name: 'Neo4j Find Slots ResourceOnly',
 		},
@@ -93,7 +93,7 @@ export class Neo4jFindAvailableSlotsResourceOnly implements INodeType {
 			},
 			{
 				displayName: 'Required Resource Type',
-				name: 'requiredResourceType',
+				name: 'requiredResourceTypeId',
 				type: 'string',
 				required: true,
 				default: '',

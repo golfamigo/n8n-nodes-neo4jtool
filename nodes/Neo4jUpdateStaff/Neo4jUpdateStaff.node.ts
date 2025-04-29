@@ -29,7 +29,7 @@ export class Neo4jUpdateStaff implements INodeType {
 		group: ['database'],
 		version: 1,
 		subtitle: '={{$parameter["staffId"]}}',
-		description: '根據 staff_id 更新員工資訊。',
+		description: '根據 staff_id 更新員工資訊。,staffId: 要更新的員工 staff_id (UUID),name: 新的員工姓名 (可選),email: 新的員工電子郵件 (可選),phone: 新的員工電話號碼 (可選)。',
 		defaults: {
 			name: 'Neo4j Update Staff',
 		},

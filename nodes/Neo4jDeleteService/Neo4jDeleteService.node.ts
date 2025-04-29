@@ -29,7 +29,7 @@ export class Neo4jDeleteService implements INodeType {
 		group: ['database'],
 		version: 1,
 		subtitle: '={{$parameter["serviceId"]}}', // Show serviceId in subtitle
-		description: '根據 service_id 刪除服務及其關聯關係。', // From TaskInstructions.md
+		description: '根據 service_id 刪除服務及其關聯關係。,serviceId: 要刪除的服務 ID (UUID)。', // From TaskInstructions.md
 		defaults: {
 			name: 'Neo4j Delete Service',
 		},

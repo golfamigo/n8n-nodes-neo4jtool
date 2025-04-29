@@ -30,7 +30,7 @@ export class Neo4jCreateResource implements INodeType {
 		group: ['database'],
 		version: 1,
 		subtitle: '={{$parameter["type"]}}: {{$parameter["name"]}}', // Show type and name
-		description: '創建一個新的資源記錄並關聯到商家。', // From TaskInstructions.md
+		description: '創建一個新的資源記錄並關聯到商家。,businessId: 資源所屬的商家 ID (UUID),type: 資源類型 (例如 Table, Seat, Room). 建議先用 ListResourceTypes 查詢.,name: 資源名稱/編號 (例如 Table 5, Window Seat 2),capacity: 資源容量 (可選),propertiesJson: 其他屬性 (JSON 格式, 例如 {"feature": "window_view"}) (可選)。', // From TaskInstructions.md
 		defaults: {
 			name: 'Neo4j Create Resource',
 		},

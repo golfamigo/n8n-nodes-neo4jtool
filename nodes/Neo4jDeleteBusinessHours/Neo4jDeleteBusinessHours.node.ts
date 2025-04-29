@@ -28,7 +28,7 @@ export class Neo4jDeleteBusinessHours implements INodeType {
 		group: ['database'],
 		version: 1,
 		subtitle: 'for Business {{$parameter["businessId"]}}',
-		description: '刪除指定商家的所有營業時間記錄。',
+		description: '刪除指定商家的所有營業時間記錄。,businessId: 要刪除營業時間的商家 ID (UUID)。',
 		defaults: {
 			name: 'Neo4j Delete Business Hours',
 		},

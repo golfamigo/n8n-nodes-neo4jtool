@@ -29,7 +29,7 @@ export class Neo4jCreateCustomer implements INodeType {
 		group: ['database'],
 		version: 1,
 		subtitle: '={{$parameter["name"]}} for {{$parameter["businessId"]}}', // Show customer name and business ID
-		description: '為指定商家創建一個新的客戶資料並關聯用戶。', // From TaskInstructions.md
+		description: '為指定商家創建一個新的客戶資料並關聯用戶。,businessId: 客戶註冊的商家 ID (UUID),userId: 關聯的 User 節點的內部 ID (UUID),name: 客戶姓名 (可以與 User.name 不同),phone: 客戶聯繫電話,email: 客戶聯繫電子郵件。', // From TaskInstructions.md
 		defaults: {
 			name: 'Neo4j Create Customer',
 		},

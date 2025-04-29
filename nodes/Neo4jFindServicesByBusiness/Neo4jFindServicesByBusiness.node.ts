@@ -29,7 +29,7 @@ export class Neo4jFindServicesByBusiness implements INodeType {
 		group: ['database'],
 		version: 1,
 		subtitle: '={{$parameter["businessId"]}}', // Show businessId in subtitle
-		description: '查找指定商家提供的所有服務項目。', // From TaskInstructions.md
+		description: '查找指定商家提供的所有服務項目。,businessId: 要查詢的商家 ID (UUID)。', // From TaskInstructions.md
 		defaults: {
 			name: 'Neo4j Find Services',
 		},

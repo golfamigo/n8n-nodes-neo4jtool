@@ -29,7 +29,7 @@ export class Neo4jUpdateResource implements INodeType {
 		group: ['database'],
 		version: 1,
 		subtitle: '={{$parameter["resourceId"]}}', // Show resourceId
-		description: '根據 resource_id 更新資源資訊。', // From TaskInstructions.md
+		description: '根據 resource_id 更新資源資訊。,resourceId: 要更新的資源 ID (UUID),type: 新的資源類型 (可選),name: 新的資源名稱/編號 (可選),capacity: 新的資源容量 (可選),propertiesJson: 要更新或添加的其他屬性 (JSON 格式)。留空則不更新此項。', // From TaskInstructions.md
 		defaults: {
 			name: 'Neo4j Update Resource',
 		},

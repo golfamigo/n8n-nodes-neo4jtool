@@ -29,7 +29,7 @@ export class Neo4jUpdateCustomer implements INodeType {
 		group: ['database'],
 		version: 1,
 		subtitle: '={{$parameter["customerId"]}}', // Show customerId in subtitle
-		description: '根據 customer_id 更新客戶資訊。', // From TaskInstructions.md
+		description: '根據 customer_id 更新客戶資訊。,customerId: 要更新的客戶 ID (UUID),name: 新的客戶姓名 (可選),phone: 新的客戶聯繫電話 (可選),email: 新的客戶聯繫電子郵件 (可選)。', // From TaskInstructions.md
 		defaults: {
 			name: 'Neo4j Update Customer',
 		},

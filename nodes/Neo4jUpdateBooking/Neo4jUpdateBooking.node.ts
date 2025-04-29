@@ -41,7 +41,7 @@ export class Neo4jUpdateBooking implements INodeType {
 		group: ['database'],
 		version: 1,
 		subtitle: '={{$parameter["bookingId"]}}', // Show bookingId
-		description: '根據 booking_id 更新預約資訊（例如狀態、時間、備註）。', // From TaskInstructions.md
+		description: '根據 booking_id 更新預約資訊（例如狀態、時間、備註）。,bookingId: 要更新的預約 ID (UUID),bookingTime: 新的預約開始時間 (ISO 8601 格式, 需含時區) (可選),status: 新的預約狀態 (例如 Confirmed, Cancelled, Completed) (可選),staffId: 更新服務員工 ID (UUID) (可選, 留空以移除),notes: 新的預約備註 (可選)。', // From TaskInstructions.md
 		defaults: {
 			name: 'Neo4j Update Booking',
 		},

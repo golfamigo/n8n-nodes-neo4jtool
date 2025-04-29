@@ -29,7 +29,7 @@ export class Neo4jCreateOrUpdateUser implements INodeType {
 		group: ['database'],
 		version: 1,
 		subtitle: '={{$parameter["external_id"]}}', // Show external_id in subtitle
-		description: '根據 external_id 查找或創建用戶，並在創建時生成內部 id。', // From TaskInstructions.md
+		description: '根據 external_id 查找或創建用戶，並在創建時生成內部 id。,external_id: The External ID to find or create the user by (UUID),name: Users name,email: Users email address,phone: Users phone number,notification_enabled: Whether notifications are enabled for the user。', // From TaskInstructions.md
 		defaults: {
 			name: 'Neo4j Create/Update User',
 		},

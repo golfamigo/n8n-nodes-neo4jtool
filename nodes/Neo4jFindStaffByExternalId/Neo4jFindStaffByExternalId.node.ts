@@ -29,7 +29,7 @@ export class Neo4jFindStaffByExternalId implements INodeType {
 		group: ['database'],
 		version: 1,
 		subtitle: '={{$parameter["externalId"]}}',
-		description: '根據用戶 External ID 查找關聯的員工記錄。',
+		description: '根據用戶 External ID 查找關聯的員工記錄。,externalId: 用戶的 External ID (UUID),businessId: 如果用戶可能在多個商家任職，可指定商家 ID (UUID) 進行過濾 (可選),limit: Max number of results to return。',
 		defaults: {
 			name: 'Neo4j Find Staff',
 		},

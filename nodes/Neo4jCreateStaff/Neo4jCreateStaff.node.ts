@@ -29,7 +29,7 @@ export class Neo4jCreateStaff implements INodeType {
 		group: ['database'],
 		version: 1,
 		subtitle: '={{$parameter["name"]}} for Business {{$parameter["businessId"]}}',
-		description: '為指定商家創建一個新的員工記錄。',
+		description: '為指定商家創建一個新的員工記錄。,businessId: 員工所屬的商家 ID (UUID),name: 員工姓名,email: 員工電子郵件 (可選),phone: 員工電話號碼 (可選)。',
 		defaults: {
 			name: 'Neo4j Create Staff',
 		},

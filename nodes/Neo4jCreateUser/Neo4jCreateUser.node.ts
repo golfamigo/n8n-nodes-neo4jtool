@@ -29,7 +29,7 @@ export class Neo4jCreateUser implements INodeType {
 		group: ['database'],
 		version: 1,
 		subtitle: '={{$parameter["name"]}}', // Show name
-		description: '創建一個新的用戶記錄。', // Changed
+		description: '創建一個新的用戶記錄。,external_id: 來自外部應用的 ID (例如 Line ID) (UUID),name: 用戶姓名,email: 用戶電子郵件,phone: 用戶電話號碼,notification_enabled: Whether notifications are enabled for the user。', // Changed
 		defaults: {
 			name: 'Neo4j Create User',
 		},
