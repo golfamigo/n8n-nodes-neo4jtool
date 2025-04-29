@@ -27,6 +27,7 @@
 		"nodes/**/*",
 		"nodes/**/*.json",
 		"package.json",
+		"update_mcp_descriptions.ts" // Include the new script
 	],
 	"exclude": [
 		"node_modules",
