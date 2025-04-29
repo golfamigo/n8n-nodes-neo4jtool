@@ -50,5 +50,6 @@ To use these nodes, you need to configure Neo4j credentials named `neo4jApi` in 
 
 ## Development Notes
 
+*   **2025-04-29:** Updated the description for the `hoursData` parameter in `Neo4jSetBusinessHours.node.ts` to clarify the expected format for `day_of_week` (1-7, Sunday=7) and fixed angle bracket encoding for ESLint compliance.
 *   **2025-04-29:** Generated `Docs/NodeDescriptions.md` containing descriptions for all nodes based on their `INodeTypeDescription` and properties. This file serves as a quick reference for node parameters and functionality.
 *   **2025-04-29:** Updated the format of the `description` field for the `Neo4jCreateBooking` node in `Docs/NodeDescriptions.md` to be a single line with `\n` for line breaks.

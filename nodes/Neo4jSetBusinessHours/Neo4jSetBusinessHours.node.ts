@@ -47,7 +47,20 @@ export class Neo4jSetBusinessHours implements INodeType {
 		group: ['database'],
 		version: 1,
 		subtitle: 'for Business {{$parameter["businessId"]}}',
-		description: '設定或更新指定商家的營業時間 (會覆蓋舊設定)格式: [{"day_of_week": 1, "start_time": "09:00", "end_time": "17:00"}, ...] (時間為 HH:MM 格式)。,businessId: 要設定營業時間的商家 ID (UUID),hoursData: 包含每天營業時間的 JSON 陣列。格式必須是 day_of_week, start_time, end_time。。',
+		// --- MODIFIED description ---
+		description: `設定或更新指定商家的常規每週營業時間。此操作會 **完全覆蓋** 該商家所有舊的營業時間設定。
+通過 'Hours Data' (JSON 陣列) 提供時間段:
+每個時間段物件需包含 'day_of_week' (數字 1-7 或英文星期名), 'start_time' (HH:MM), 'end_time' (HH:MM)。
+
+- **基本格式**: {"day_of_week": 1, "start_time": "09:00", "end_time": "17:00"}
+- **設定休息時間**: 您可以為同一天提供多個不連續的時間段來表示休息時間。
+  範例 (週一 9-12, 13-17，中間休息):
+  [
+    {"day_of_week": 1, "start_time": "09:00", "end_time": "12:00"},
+    {"day_of_week": 1, "start_time": "13:00", "end_time": "17:00"}
+  ]
+
+**重要**: 請確保 start_time 早於 end_time。`,
 		defaults: {
 			name: 'Neo4j Set Business Hours',
 		},
@@ -55,7 +68,7 @@ export class Neo4jSetBusinessHours implements INodeType {
 		outputs: ['main'],
 		// @ts-ignore - Workaround
 		usableAsTool: true,
-		credentials: [ { name: 'neo4jApi', required: true } ],
+		credentials: [{ name: 'neo4jApi', required: true }],
 		properties: [
 			{
 				displayName: 'Business ID',
@@ -63,22 +76,27 @@ export class Neo4jSetBusinessHours implements INodeType {
 				type: 'string',
 				required: true,
 				default: '',
-				description: '要設定營業時間的商家 ID',
+				description: '要設定營業時間的商家 ID (UUID)',
 			},
 			{
 				displayName: 'Hours Data',
 				name: 'hoursData',
-				type: 'string', // 保持為 string 類型以兼容 MCP
+				type: 'string',
 				required: true,
-				default: '[\n  {\n    "day_of_week": 1,\n    "start_time": "09:00",\n    "end_time": "17:00"\n  }\n]',
-				description: '包含每天營業時間的 JSON 陣列。格式必須是 day_of_week, start_time, end_time。',
-				hint: '格式: [{"day_of_week": 1, "start_time": "09:00", "end_time": "17:00"}, ...] (時間為 HH:MM 格式)',
+				// --- MODIFIED default 範例 ---
+				default: `[
+  {"day_of_week": 1, "start_time": "09:00", "end_time": "12:00"},
+  {"day_of_week": 1, "start_time": "13:00", "end_time": "17:00"},
+  {"day_of_week": 2, "start_time": "09:00", "end_time": "17:00"}
+]`,
+				// --- MODIFIED properties description ---
+				description: '包含每天營業時間的 JSON 陣列。可為同一天設定多個時段以實現休息時間。詳細用法請參見節點主描述。',
 				typeOptions: {
 					rows: 10,
-				}
+				},
 			},
 		],
-	};
+	}; // End of description object
 
 	// --- Node Execution Logic ---
 	async execute(this: IExecuteFunctions): Promise<INodeExecutionData[][]> {

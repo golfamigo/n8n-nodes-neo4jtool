@@ -42,7 +42,26 @@ export class Neo4jSetStaffAvailability implements INodeType {
 		group: ['database'],
 		version: 1,
 		subtitle: 'for Staff {{$parameter["staffId"]}}',
-		description: '設定或更新指定員工的可用時間，格式: [{"day_of_week": 1, "start_time": "09:00", "end_time": "17:00"}, ...] (時間為 HH:MM 格式)。，,staffId: 目標員工的 staff_id (UUID),availabilityData: 包含每天營業時間的 JSON 陣列，格式必須是 day_of_week, start_time, end_time。設定員工的排班和例外時間。',
+		// --- MODIFIED description ---
+		description: `設定或更新指定員工的可用時間。此操作會 **完全覆蓋** 該員工所有舊的可用時間設定。
+通過 'Availability Data' (JSON 陣列) 提供時間段:
+每個時間段物件需包含 'start_time' (HH:MM), 'end_time' (HH:MM)。
+必須指定 'type' (SCHEDULE 或 EXCEPTION，預設 SCHEDULE)。
+
+- **type: "SCHEDULE"**: 設定常規每週排班。
+  - 需要 'day_of_week' (數字 1-7 或英文星期名)。
+  - 範例: {"type": "SCHEDULE", "day_of_week": 1, "start_time": "09:00", "end_time": "17:00"}
+
+- **type: "EXCEPTION"**: 設定特定日期例外，會覆蓋當天的 SCHEDULE。
+  - 需要 'date' (YYYY-MM-DD)。
+  - 可選 'reason' (字串，僅供參考，不影響可用時段計算邏輯)。
+  - **用法區分 (基於 start_time/end_time)**:
+    - **表示請假/全天不可用**: 將 'start_time' 設為 "00:00"，'end_time' 設為 "23:59"。FindAvailableSlots 將無法在此範圍內找到可用時段。
+      範例: {"type": "EXCEPTION", "date": "2025-12-25", "start_time": "00:00", "end_time": "23:59", "reason": "休假"}
+    - **表示特殊可用時段**: 設定實際的 'start_time' 和 'end_time'。FindAvailableSlots 將只在此範圍內查找可用時段。
+      範例: {"type": "EXCEPTION", "date": "2025-12-31", "start_time": "13:00", "end_time": "17:00", "reason": "僅下午"}
+
+**重要**: 請確保 start_time 早於 end_time。`,
 		defaults: {
 			name: 'Neo4j Set Staff Availability',
 		},
@@ -58,22 +77,26 @@ export class Neo4jSetStaffAvailability implements INodeType {
 				type: 'string',
 				required: true,
 				default: '',
-				description: '目標員工的 staff_id',
+				description: '目標員工的 staff_id (UUID)', // 保持簡潔
 			},
 			{
 				displayName: 'Availability Data',
 				name: 'availabilityData',
 				type: 'string',
 				required: true,
-				default: '[\n  {\n    "type": "SCHEDULE",\n    "day_of_week": 1,\n    "start_time": "09:00",\n    "end_time": "17:00"\n  },\n  {\n    "type": "EXCEPTION",\n    "date": "2025-05-01",\n    "reason": "假期",\n    "start_time": "00:00",\n    "end_time": "23:59"\n  }\n]',
-				description: '包含員工可用時間的 JSON 陣列。設定員工的排班和例外時間。',
-				hint: '可以提供一個或多個時間項目。SCHEDULE類型需要day_of_week，EXCEPTION類型需要date。',
+				// --- MODIFIED default 範例 ---
+				default: `[
+  {"type": "SCHEDULE", "day_of_week": 1, "start_time": "09:00", "end_time": "17:00"},
+  {"type": "EXCEPTION", "date": "2025-12-25", "start_time": "00:00", "end_time": "23:59", "reason": "休假"}
+]`,
+				// --- MODIFIED properties description ---
+				description: '包含員工可用時間的 JSON 陣列。詳細用法請參見節點主描述。', // 指向主描述
 				typeOptions: {
-					rows: 10,
+					rows: 8, // 可以減少行數
 				},
 			},
 		],
-	};
+	}; // End of description object
 
 	// --- Node Execution Logic ---
 	async execute(this: IExecuteFunctions): Promise<INodeExecutionData[][]> {
@@ -372,9 +395,9 @@ export class Neo4jSetStaffAvailability implements INodeType {
 							error: {
 								message: parsedError.message,
 								description: parsedError.description,
-								expectedFormat: {
-									example: '[{"type": "SCHEDULE", "day_of_week": 1, "start_time": "09:00", "end_time": "17:00"}, {"type": "EXCEPTION", "date": "2025-05-01", "reason": "假期", "start_time": "00:00", "end_time": "23:59"}]',
-									notes: 'Use type (SCHEDULE/EXCEPTION), day_of_week (for SCHEDULE) or date (for EXCEPTION), start_time and end_time in HH:MM format. Only snake_case is accepted.'
+								expectedFormat: { // Updated expected format example
+									example: `[{"type": "SCHEDULE", "day_of_week": 1, "start_time": "09:00", "end_time": "17:00"}, {"type": "EXCEPTION", "date": "2025-05-01", "reason": "假期", "start_time": "00:00", "end_time": "23:59"}]`,
+									notes: `Use type (SCHEDULE/EXCEPTION), day_of_week (for SCHEDULE) or date (for EXCEPTION), start_time and end_time in HH:MM format. Use "00:00"-"23:59" for full day exception.`
 								}
 							}
 						};
