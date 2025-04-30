@@ -45,12 +45,12 @@ export async function checkStaffOnlyAvailability(
     }
      context.logger.debug(`[StaffOnly Check] Calculated day of week: ${slotDayOfWeek}`);
 
-    // 2. Perform combined availability check in one query
+    // 2. Perform combined availability check in one query (Revised Logic v3)
     const availabilityCheckQuery = `
         // Input parameters
         WITH datetime($bookingTime) AS slotStart,
              duration({minutes: $serviceDuration}) AS serviceDuration
-        WITH slotStart, slotStart + serviceDuration AS slotEnd, date(slotStart) AS slotDate, $slotDayOfWeek AS slotDayOfWeek, serviceDuration, $serviceDuration AS durationMinutesVal // Use passed day of week
+        WITH slotStart, slotStart + serviceDuration AS slotEnd, date(slotStart) AS slotDate, $slotDayOfWeek AS slotDayOfWeek, serviceDuration, $serviceDuration AS durationMinutesVal
 
         // Match required entities
         MATCH (b:Business {business_id: $businessId})
@@ -61,33 +61,32 @@ export async function checkStaffOnlyAvailability(
         // Check 1: Business Hours
         WITH b, st, s, slotStart, slotEnd, serviceDuration, slotDate, slotDayOfWeek, durationMinutesVal
         MATCH (b)-[:HAS_HOURS]->(bh:BusinessHours)
-        WHERE bh.day_of_week = slotDayOfWeek // Compare with passed parameter
+        WHERE bh.day_of_week = slotDayOfWeek
         WITH b, st, s, slotStart, slotEnd, serviceDuration, slotDate, slotDayOfWeek, durationMinutesVal, collect([time(bh.start_time), time(bh.end_time)]) AS businessHourRanges
         WHERE size(businessHourRanges) > 0 AND any(range IN businessHourRanges WHERE range[0] <= time(slotStart) AND range[1] >= time(slotEnd))
 
-        // Check 2: Staff Availability (Schedule/Exceptions)
+        // Check 2: Staff Availability (Revised Logic v3)
         WITH b, st, s, slotStart, slotEnd, serviceDuration, slotDate, slotDayOfWeek, durationMinutesVal
-        WHERE EXISTS {
-            MATCH (st)-[:HAS_AVAILABILITY]->(sa:StaffAvailability)
-            WHERE
-                // Case 1: Specific available exception window covers the booking slot
-                (sa.type = 'EXCEPTION' AND sa.date = slotDate AND time(sa.start_time) <= time(slotStart) AND time(sa.end_time) >= time(slotEnd))
-                OR
-                // Case 2: Regular schedule covers the slot AND there's no blocking exception for the whole day
-                (sa.type = 'SCHEDULE' AND sa.day_of_week = slotDayOfWeek AND time(sa.start_time) <= time(slotStart) AND time(sa.end_time) >= time(slotEnd)
-                 AND NOT EXISTS {
-                     MATCH (st)-[:HAS_AVAILABILITY]->(sa_ex:StaffAvailability {type: 'EXCEPTION', date: slotDate})
-                     // Check if the exception covers the entire day (00:00 to 23:59) or overlaps the requested slot
-                     WHERE (time(sa_ex.start_time) = time({hour: 0, minute: 0}) AND time(sa_ex.end_time) >= time({hour: 23, minute: 59}))
-                        OR (time(sa_ex.start_time) < time(slotEnd) AND time(sa_ex.end_time) > time(slotStart))
-                 })
-        }
+        OPTIONAL MATCH (st)-[:HAS_AVAILABILITY]->(sched:StaffAvailability {type: 'SCHEDULE', day_of_week: slotDayOfWeek})
+        OPTIONAL MATCH (st)-[:HAS_AVAILABILITY]->(exc:StaffAvailability {type: 'EXCEPTION', date: slotDate})
+        WITH b, st, s, slotStart, slotEnd, serviceDuration, slotDate, slotDayOfWeek, durationMinutesVal, sched, exc,
+             (exc IS NOT NULL AND time(exc.start_time) <= time(slotStart) AND time(exc.end_time) >= time(slotEnd)) // Covered by positive exception
+             OR
+             (sched IS NOT NULL AND time(sched.start_time) <= time(slotStart) AND time(sched.end_time) >= time(slotEnd)) // Covered by schedule
+             AS isCoveredByWindow
+        WITH b, st, s, slotStart, slotEnd, serviceDuration, slotDate, slotDayOfWeek, durationMinutesVal, isCoveredByWindow,
+             EXISTS {
+                 MATCH (st)-[:HAS_AVAILABILITY]->(blockingExc:StaffAvailability {type: 'EXCEPTION', date: slotDate})
+                 WHERE (time(blockingExc.start_time) = time({hour: 0, minute: 0}) AND time(blockingExc.end_time) >= time({hour: 23, minute: 59}))
+                    OR (time(blockingExc.start_time) < time(slotEnd) AND time(blockingExc.end_time) > time(slotStart))
+             } AS isBlockedByException
+        WHERE isCoveredByWindow AND NOT isBlockedByException
 
         // Check 3: Staff Booking Conflicts
         WITH b, st, s, slotStart, slotEnd, serviceDuration, durationMinutesVal
         WHERE NOT EXISTS {
             MATCH (bk_staff:Booking)-[:SERVED_BY]->(st)
-            WHERE bk_staff.status <> 'Cancelled' // Ignore cancelled bookings
+            WHERE bk_staff.status <> 'Cancelled'
               AND bk_staff.booking_time < slotEnd
               AND bk_staff.booking_time + duration({minutes: durationMinutesVal}) > slotStart
         }
@@ -104,7 +103,7 @@ export async function checkStaffOnlyAvailability(
         }
         ` : ''}
 
-        // If all checks pass, return a confirmation (e.g., staff ID)
+        // If all checks pass, return a confirmation
         RETURN st.staff_id AS availableStaffId
     `;
 
@@ -119,7 +118,7 @@ export async function checkStaffOnlyAvailability(
         customerId: params.customerId, // Will be null/undefined if not provided
     };
 
-    context.logger.debug('[StaffOnly Check] Executing combined availability query', availabilityCheckParams);
+    context.logger.debug('[StaffOnly Check] Executing revised combined availability query v3', availabilityCheckParams);
     const availabilityResults = await runCypherQuery.call(context, session, availabilityCheckQuery, availabilityCheckParams, false, params.itemIndex);
 
     if (availabilityResults.length === 0) {
