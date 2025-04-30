@@ -9,7 +9,7 @@ import type {
 	INodeTypeDescription,
 	ICredentialDataDecryptedObject,
 } from 'n8n-workflow';
-import { NodeOperationError, jsonParse } from 'n8n-workflow'; // Import jsonParse
+import { NodeOperationError } from 'n8n-workflow'; // Removed jsonParse import
 import neo4j, { Driver, Session, auth } from 'neo4j-driver';
 
 // --- IMPORTANT: Shared Utilities ---
@@ -86,11 +86,11 @@ export class Neo4jCreateResource implements INodeType {
 				description: '資源容量 (可選)',
 			},
 			{
-				displayName: 'Properties (JSON)',
-				name: 'propertiesJson', // Use different name to avoid conflict with internal 'properties'
-				type: 'json',
+				displayName: 'Properties (JSON String)', // Updated display name
+				name: 'propertiesJson',
+				type: 'string', // Changed type back to string
 				default: '{}',
-				description: '其他屬性 (JSON 格式, 例如 {"feature": "window_view"}) (可選)',
+				description: '其他屬性 (輸入 JSON 格式的字符串, 例如 {"feature": "window_view"}) (可選)', // Updated description
 			},
 		],
 	};
@@ -145,17 +145,7 @@ export class Neo4jCreateResource implements INodeType {
 					}
 
 
-					// Parse JSON properties safely
-					let properties: IDataObject = {};
-					try {
-						properties = jsonParse(propertiesJson);
-						if (typeof properties !== 'object' || properties === null || Array.isArray(properties)) {
-							throw new NodeOperationError(node, 'Properties must be a valid JSON object.', { itemIndex: i });
-						}
-					} catch (jsonError) {
-						throw new NodeOperationError(node, `Invalid JSON in Properties field: ${jsonError.message}`, { itemIndex: i });
-					}
-
+					// Removed JSON parsing logic
 
 					// 6. Define Specific Cypher Query & Parameters
 					const query = `
@@ -183,7 +173,7 @@ export class Neo4jCreateResource implements INodeType {
 						resourceTypeId, // Use resourceTypeId
 						name,
 						capacity: capacity !== undefined ? neo4j.int(capacity) : null, // Convert to Neo4j Integer or null
-						propertiesJsonString: JSON.stringify(properties),
+						propertiesJsonString: propertiesJson, // Pass the string directly
 					};
 					const isWrite = true; // This is a write operation (CREATE)
 
