@@ -1,5 +1,5 @@
 // ============================================================================
-// N8N Neo4j Node: Create Staff
+// N8N Neo4j Node: Link Service to Resource Type
 // ============================================================================
 import type {
 	IExecuteFunctions,
@@ -19,19 +19,19 @@ import {
 } from '../neo4j/helpers/utils';
 
 // --- Node Class Definition ---
-export class Neo4jCreateStaff implements INodeType {
+export class Neo4jLinkServiceToResourceType implements INodeType {
 
 	// --- Node Description for n8n UI ---
 	description: INodeTypeDescription = {
-		displayName: 'Neo4j Create Staff',
-		name: 'neo4jCreateStaff',
+		displayName: 'Neo4j Link Service to Resource Type',
+		name: 'neo4jLinkServiceToResourceType',
 		icon: 'file:../neo4j/neo4j.svg',
 		group: ['database'],
 		version: 1,
-		subtitle: '={{$parameter["name"]}} for Business {{$parameter["businessId"]}}',
-		description: '為指定商家創建一個新的員工記錄。,businessId: 員工所屬的商家 ID (UUID),name: 員工姓名,email: 員工電子郵件 (可選),phone: 員工電話號碼 (可選)。',
+		subtitle: '={{$parameter["serviceId"]}} REQUIRES {{$parameter["resourceTypeId"]}}',
+		description: '創建服務 (Service) 與所需資源類型 (ResourceType) 之間的 :REQUIRES_RESOURCE 關係',
 		defaults: {
-			name: 'Neo4j Create Staff',
+			name: 'Neo4j Link Service to Resource Type',
 		},
 		inputs: ['main'],
 		outputs: ['main'],
@@ -40,35 +40,24 @@ export class Neo4jCreateStaff implements INodeType {
 		credentials: [ { name: 'neo4jApi', required: true } ],
 		properties: [
 			{
-				displayName: 'Business ID',
-				name: 'businessId',
-				type: 'string',
+				displayName: 'Service ID',
+				name: 'serviceId',
+				type: 'string', // Using string for now
 				required: true,
 				default: '',
-				description: '員工所屬的商家 ID',
+				description: '需要關聯的服務的 ID (UUID)',
+				// placeholder: 'Enter Service ID or select...', // Placeholder if using options
+				// typeOptions: { loadOptionsMethod: 'listServices' } // Add later if needed
 			},
 			{
-				displayName: 'Name',
-				name: 'name',
-				type: 'string',
+				displayName: 'Resource Type ID',
+				name: 'resourceTypeId',
+				type: 'string', // Using string for now
 				required: true,
 				default: '',
-				description: '員工姓名',
-			},
-			{
-				displayName: 'Email',
-				name: 'email',
-				type: 'string',
-				default: '',
-				placeholder: 'staff@email.com',
-				description: '員工電子郵件 (可選)',
-			},
-			{
-				displayName: 'Phone',
-				name: 'phone',
-				type: 'string',
-				default: '',
-				description: '員工電話號碼 (可選)',
+				description: '服務所需的資源類型的 ID (UUID)',
+				// placeholder: 'Enter Resource Type ID or select...', // Placeholder if using options
+				// typeOptions: { loadOptionsMethod: 'listResourceTypes' } // Add later if needed
 			},
 		],
 	};
@@ -108,39 +97,48 @@ export class Neo4jCreateStaff implements INodeType {
 			for (let i = 0; i < items.length; i++) {
 				try {
 					// 5. Get Input Parameters
-					const businessId = this.getNodeParameter('businessId', i, '') as string;
-					const name = this.getNodeParameter('name', i, '') as string;
-					const email = this.getNodeParameter('email', i, '') as string;
-					const phone = this.getNodeParameter('phone', i, '') as string;
+					const serviceId = this.getNodeParameter('serviceId', i, '') as string;
+					const resourceTypeId = this.getNodeParameter('resourceTypeId', i, '') as string;
+
+					// Validate IDs
+					if (!serviceId || !resourceTypeId) {
+						throw new NodeOperationError(node, 'Service ID and Resource Type ID are required.', { itemIndex: i });
+					}
 
 					// 6. Define Cypher Query & Parameters
 					const query = `
-						MATCH (b:Business {business_id: $businessId})
-						CREATE (st:Staff {
-							staff_id: randomUUID(),
-							business_id: $businessId,
-							name: $name,
-							email: $email,
-							phone: $phone,
-							created_at: datetime()
-						})
-						MERGE (st)-[:WORKS_AT]->(b) // Corrected relationship type and direction
-						RETURN st {.*} AS staff
+						MATCH (s:Service {service_id: $serviceId})
+						MATCH (rt:ResourceType {type_id: $resourceTypeId})
+						MERGE (s)-[r:REQUIRES_RESOURCE]->(rt)
+						RETURN type(r) AS relationshipType
 					`;
 					const parameters: IDataObject = {
-						businessId,
-						name,
-						email: email === '' ? null : email, // Store empty string as null
-						phone: phone === '' ? null : phone, // Store empty string as null
+						serviceId,
+						resourceTypeId,
 					};
-					const isWrite = true;
+					const isWrite = true; // This is a write operation (MERGE)
 
 					// 7. Execute Query
 					if (!session) {
 						throw new NodeOperationError(node, 'Neo4j session is not available.', { itemIndex: i });
 					}
 					const results = await runCypherQuery.call(this, session, query, parameters, isWrite, i);
-					returnData.push(...results);
+
+					// Add relationship type to output for confirmation
+					if (results.length > 0 && results[0].json.relationshipType) {
+						returnData.push({
+							json: { ...items[i].json, relationshipCreated: results[0].json.relationshipType },
+							pairedItem: { item: i }
+						});
+					} else {
+						// Handle case where MERGE didn't create/return anything (shouldn't happen with MERGE)
+						// Or if nodes weren't found (MATCH failed) - runCypherQuery might throw or return empty
+						returnData.push({
+							json: { ...items[i].json, error: 'Relationship creation failed or nodes not found.' },
+							pairedItem: { item: i }
+						});
+					}
+
 
 				} catch (itemError) {
 					// 8. Handle Item-Level Errors

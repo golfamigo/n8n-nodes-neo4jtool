@@ -29,8 +29,8 @@ export class Neo4jCreateResource implements INodeType {
 		icon: 'file:../neo4j/neo4j.svg',
 		group: ['database'],
 		version: 1,
-		subtitle: '={{$parameter["type"]}}: {{$parameter["name"]}}', // Show type and name
-		description: '創建一個新的資源記錄並關聯到商家。,businessId: 資源所屬的商家 ID (UUID),type: 資源類型 (例如 Table, Seat, Room). 建議先用 ListResourceTypes 查詢.,name: 資源名稱/編號 (例如 Table 5, Window Seat 2),capacity: 資源容量 (可選),propertiesJson: 其他屬性 (JSON 格式, 例如 {"feature": "window_view"}) (可選)。', // From TaskInstructions.md
+		subtitle: '={{$parameter["name"]}}', // Updated subtitle to remove type which is now implicit
+		description: '創建一個新的資源記錄並關聯到商家和資源類型。,businessId: 資源所屬的商家 ID (UUID),resourceTypeId: 資源所屬的資源類型 ID (UUID)(如果不知道正確的ID是甚麼，可以使用Neo4j_List_Resource_Types工具查詢).,name: 資源名稱/編號 (例如 Table 5, Window Seat 2),capacity: 資源容量 (可選),propertiesJson: 其他屬性 (JSON 格式, 例如 {"feature": "window_view"}) (可選)。', // Updated description
 		defaults: {
 			name: 'Neo4j Create Resource',
 		},
@@ -59,12 +59,13 @@ export class Neo4jCreateResource implements INodeType {
 				description: '資源所屬的商家 ID',
 			},
 			{
-				displayName: 'Type',
-				name: 'type',
-				type: 'string',
+				displayName: 'Resource Type ID', // Clear display name
+				name: 'resourceTypeId',
+				type: 'string', // Changed back to string
 				required: true,
 				default: '',
-				description: '資源類型 (例如 Table, Seat, Room). 建議先用 ListResourceTypes 查詢.',
+				description: 'The unique ID (UUID) of the resource type this resource belongs to', // Updated description
+				// Removed typeOptions
 			},
 			{
 				displayName: 'Name',
@@ -72,7 +73,7 @@ export class Neo4jCreateResource implements INodeType {
 				type: 'string',
 				required: true,
 				default: '',
-				description: '資源名稱/編號 (例如 Table 5, Window Seat 2)',
+				description: 'Name of the resource instance (e.g., Chair 1, Room A)', // More descriptive
 			},
 			{
 				displayName: 'Capacity',
@@ -133,10 +134,16 @@ export class Neo4jCreateResource implements INodeType {
 				try {
 					// 5. Get Input Parameters
 					const businessId = this.getNodeParameter('businessId', i, '') as string;
-					const type = this.getNodeParameter('type', i, '') as string;
+					const resourceTypeId = this.getNodeParameter('resourceTypeId', i, '') as string; // Corrected: Get resourceTypeId
 					const name = this.getNodeParameter('name', i, '') as string;
 					const capacity = this.getNodeParameter('capacity', i, undefined) as number | undefined;
 					const propertiesJson = this.getNodeParameter('propertiesJson', i, '{}') as string;
+
+					// Validate required resourceTypeId
+					if (!resourceTypeId) {
+						throw new NodeOperationError(node, 'Resource Type ID is required.', { itemIndex: i });
+					}
+
 
 					// Parse JSON properties safely
 					let properties: IDataObject = {};
@@ -153,10 +160,11 @@ export class Neo4jCreateResource implements INodeType {
 					// 6. Define Specific Cypher Query & Parameters
 					const query = `
 						MATCH (b:Business {business_id: $businessId})
+						MATCH (rt:ResourceType {type_id: $resourceTypeId}) // Match the ResourceType
 						CREATE (r:Resource {
 							resource_id: randomUUID(),
 							business_id: $businessId,
-							type: $type,
+							// Removed type property, relationship defines the type now
 							name: $name,
 							capacity: $capacity,
 							properties: $propertiesJsonString,
@@ -166,11 +174,13 @@ export class Neo4jCreateResource implements INodeType {
 						MERGE (r)-[:BELONGS_TO]->(b)
 						// 建立向前兼容的關聯
 						MERGE (b)-[:HAS_RESOURCE]->(r)
+						// Create the relationship to the ResourceType
+						MERGE (r)-[:OF_TYPE]->(rt)
 						RETURN r {.*} AS resource
 					`;
 					const parameters: IDataObject = {
 						businessId,
-						type,
+						resourceTypeId, // Use resourceTypeId
 						name,
 						capacity: capacity !== undefined ? neo4j.int(capacity) : null, // Convert to Neo4j Integer or null
 						propertiesJsonString: JSON.stringify(properties),
