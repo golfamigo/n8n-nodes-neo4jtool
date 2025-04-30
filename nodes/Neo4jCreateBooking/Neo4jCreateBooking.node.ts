@@ -6,12 +6,11 @@ import type {
 	IDataObject,
 } from 'n8n-workflow';
 import { NodeOperationError } from 'n8n-workflow';
-import neo4j, { type Session } from 'neo4j-driver';
+import neo4j, { type Session, type Driver } from 'neo4j-driver'; // Added Driver type
 import {
 	runCypherQuery,
-	convertNeo4jProperties,
-	generateBookingId,
-	getNeo4jSession,
+	// Removed convertNeo4jProperties, generateBookingId, getNeo4jSession
+	convertNeo4jValueToJs, // Added this import
 } from '../neo4j/helpers/utils';
 import { toNeo4jDateTimeString } from '../neo4j/helpers/timeUtils';
 import {
@@ -117,12 +116,31 @@ export class Neo4jCreateBooking implements INodeType {
 	async execute(this: IExecuteFunctions): Promise<INodeExecutionData[][]> {
 		const items = this.getInputData();
 		const returnData: INodeExecutionData[] = [];
+		let driver: Driver | null = null; // Use Driver type
 		let session: Session | null = null;
 
 		try {
-			session = getNeo4jSession(this);
+			// Standard session creation
+			const credentials = await this.getCredentials('neo4jApi');
+			const uri = credentials.uri as string;
+			const user = credentials.user as string;
+			const password = credentials.password as string;
+			const database = credentials.database as string | undefined; // Optional database
+
+			driver = neo4j.driver(uri, neo4j.auth.basic(user, password));
+			const sessionConfig: any = {}; // Use 'any' for flexibility or define a specific type
+			if (database) {
+				sessionConfig.database = database;
+			}
+			session = driver.session(sessionConfig);
+			this.logger.debug('Neo4j session created.');
+
 
 			for (let itemIndex = 0; itemIndex < items.length; itemIndex++) {
+				// Ensure session is not null before proceeding inside the loop
+				if (!session) {
+					throw new NodeOperationError(this.getNode(), 'Failed to establish Neo4j session.', { itemIndex });
+				}
 				try {
 					const customerId = this.getNodeParameter('customerId', itemIndex, '') as string;
 					const businessId = this.getNodeParameter('businessId', itemIndex, '') as string;
@@ -187,9 +205,9 @@ export class Neo4jCreateBooking implements INodeType {
 					this.logger.debug(`[Create Booking] Availability check passed for time: ${bookingTime}`);
 
 					// 3. Create Booking if check passed
-					const bookingId = generateBookingId();
+					// const bookingId = generateBookingId(); // Removed, will use apoc.create.uuid()
 					const createParams: IDataObject = {
-						bookingId,
+						// bookingId, // Removed
 						customerId,
 						businessId,
 						serviceId,
@@ -247,22 +265,63 @@ export class Neo4jCreateBooking implements INodeType {
 						MERGE (ru)-[:OF_TYPE]->(rt)
 						` : ''}
 
+						// Create Booking node using apoc.create.uuid() for booking_id
+						CREATE (bk:Booking {
+							booking_id: apoc.create.uuid(), // Use apoc.create.uuid()
+							customer_id: $customerId,
+							business_id: $businessId,
+							service_id: $serviceId,
+							booking_time: datetime($bookingTime),
+							status: $status,
+							notes: $notes,
+							created_at: datetime()
+						})
+
+						// Create base relationships
+						MERGE (c)-[:MAKES]->(bk)
+						MERGE (bk)-[:AT_BUSINESS]->(b)
+						MERGE (bk)-[:FOR_SERVICE]->(s)
+
+						// Create optional relationships based on parameters
+						WITH bk, c, b, s
+						${(bookingMode === 'StaffOnly' || bookingMode === 'StaffAndResource') ? `
+						OPTIONAL MATCH (st:Staff {staff_id: $staffId})
+						WHERE st IS NOT NULL
+						MERGE (bk)-[:SERVED_BY]->(st)
+						` : ''}
+						WITH bk, c, b, s
+						${(bookingMode === 'ResourceOnly' || bookingMode === 'StaffAndResource') ? `
+						OPTIONAL MATCH (rt:ResourceType {type_id: $resourceTypeId})
+						WHERE rt IS NOT NULL AND $resourceQuantity IS NOT NULL
+						CREATE (ru:ResourceUsage {
+							usage_id: apoc.create.uuid(),
+							booking_id: bk.booking_id, // Use the generated booking_id
+							resource_type_id: $resourceTypeId,
+							quantity: $resourceQuantity
+						})
+						MERGE (bk)-[:USES_RESOURCE]->(ru)
+						MERGE (ru)-[:OF_TYPE]->(rt)
+						` : ''}
+
 						// Return the created booking
 						RETURN bk
 					`;
 
 					this.logger.debug('[Create Booking] Executing create query with params:', createParams);
 					const results = await runCypherQuery.call(this, session, createQuery, createParams, true, itemIndex); // Read results
-					this.logger.debug('[Create Booking] Query executed, results count:', results.length);
+					this.logger.debug(`[Create Booking] Query executed, results count: ${results.length}`); // Fixed logger param
 
 					// Process results
 					results.forEach((record) => {
-						const bookingNode = record.json.bk; // Assuming the query returns 'bk'
-						if (bookingNode && bookingNode.properties) {
-							returnData.push({ json: convertNeo4jProperties(bookingNode.properties), pairedItem: { item: itemIndex } });
+						// record.json contains the object representation of the Neo4j record
+						// The query returns 'bk', so we access it via record.json.bk
+						const bookingNodeData = record.json.bk as IDataObject | undefined; // Type assertion
+						if (bookingNodeData && typeof bookingNodeData === 'object' && bookingNodeData.properties) {
+							// convertNeo4jValueToJs was already applied by runCypherQuery/wrapNeo4jResult
+							returnData.push({ json: bookingNodeData.properties, pairedItem: { item: itemIndex } });
 						} else {
 							// Handle case where booking node might not be returned as expected
-							this.logger.warn(`[Create Booking] Booking node not found in query result for item ${itemIndex}`);
+							this.logger.warn(`[Create Booking] Booking node data not found or invalid in query result for item ${itemIndex}`, { recordData: record.json });
 							// Optionally throw an error or return an empty object
 							returnData.push({ json: { error: 'Booking creation confirmed but node data retrieval failed.' }, pairedItem: { item: itemIndex } });
 						}
@@ -285,8 +344,20 @@ export class Neo4jCreateBooking implements INodeType {
 			throw error;
 		} finally {
 			if (session) {
-				await session.close();
-				this.logger.debug('Neo4j session closed.');
+				try {
+					await session.close();
+					this.logger.debug('Neo4j session closed.');
+				} catch (closeError) {
+					this.logger.error('Error closing Neo4j session:', closeError);
+				}
+			}
+			if (driver) {
+				try {
+					await driver.close();
+					this.logger.debug('Neo4j driver closed.');
+				} catch (closeError) {
+					this.logger.error('Error closing Neo4j driver:', closeError);
+				}
 			}
 		}
 
