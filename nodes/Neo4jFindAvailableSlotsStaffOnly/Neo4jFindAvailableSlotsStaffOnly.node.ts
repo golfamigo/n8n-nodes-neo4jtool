@@ -184,8 +184,8 @@ export class Neo4jFindAvailableSlotsStaffOnly implements INodeType {
 				// 獲取服務信息
 				MATCH (s:Service {service_id: $serviceId})<-[:OFFERS]-(b)
 
-				// 確認指定員工存在並能提供該服務
-				MATCH (b)-[:EMPLOYS]->(st:Staff {staff_id: $requiredStaffId})
+				// 確認指定員工存在並能提供該服務 (修正關係方向)
+				MATCH (st:Staff {staff_id: $requiredStaffId})-[:WORKS_AT]->(b)
 				WITH b, hoursList, s, st
 				MATCH (st)-[:CAN_PROVIDE]->(s)
 
