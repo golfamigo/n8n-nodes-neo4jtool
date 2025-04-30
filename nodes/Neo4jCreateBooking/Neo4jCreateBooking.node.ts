@@ -4,11 +4,13 @@ import type {
 	INodeType,
 	INodeTypeDescription,
 	IDataObject,
+	ICredentialDataDecryptedObject, // Added for credentials
 } from 'n8n-workflow';
 import { NodeOperationError } from 'n8n-workflow';
-import neo4j, { type Session, type Driver } from 'neo4j-driver'; // Added Driver type
+import neo4j, { type Session, type Driver, auth } from 'neo4j-driver'; // Added Driver, auth
 import {
 	runCypherQuery,
+	parseNeo4jError, // Added for error handling consistency
 	// Removed convertNeo4jProperties, generateBookingId, getNeo4jSession
 	// Removed unused import: convertNeo4jValueToJs
 } from '../neo4j/helpers/utils';
@@ -118,30 +120,42 @@ export class Neo4jCreateBooking implements INodeType {
 	async execute(this: IExecuteFunctions): Promise<INodeExecutionData[][]> {
 		const items = this.getInputData();
 		const returnData: INodeExecutionData[] = [];
-		let driver: Driver | null = null; // Use Driver type
-		let session: Session | null = null;
+		let driver: Driver | undefined; // Use undefined initial state
+		let session: Session | undefined; // Use undefined initial state
+		const node = this.getNode(); // Get node reference for error handling
 
 		try {
-			// Standard session creation
-			const credentials = await this.getCredentials('neo4jApi');
-			const uri = credentials.uri as string;
-			const user = credentials.user as string;
-			const password = credentials.password as string;
-			const database = credentials.database as string | undefined; // Optional database
+			// 1. Get Credentials
+			const credentials = await this.getCredentials('neo4jApi') as ICredentialDataDecryptedObject;
 
-			driver = neo4j.driver(uri, neo4j.auth.basic(user, password));
-			const sessionConfig: any = {}; // Use 'any' for flexibility or define a specific type
-			if (database) {
-				sessionConfig.database = database;
+			// 2. Validate Credentials
+			if (!credentials || !credentials.host || !credentials.port || !credentials.username || typeof credentials.password === 'undefined') {
+				throw new NodeOperationError(node, 'Neo4j credentials are not fully configured or missing required fields (host, port, username, password).', { itemIndex: 0 });
 			}
-			session = driver.session(sessionConfig);
-			this.logger.debug('Neo4j session created.');
+
+			const uri = `${credentials.host}:${credentials.port}`; // Combine host and port
+			const username = credentials.username as string; // Use username
+			const password = credentials.password as string;
+			const database = credentials.database as string || 'neo4j'; // Default to 'neo4j' if undefined
+
+			// 3. Establish Neo4j Connection
+			try {
+				driver = neo4j.driver(uri, auth.basic(username, password)); // Use auth.basic
+				await driver.verifyConnectivity(); // Verify connection
+				this.logger.debug('Neo4j driver connected successfully.');
+				session = driver.session({ database }); // Open session
+				this.logger.debug(`Neo4j session opened for database: ${database}`);
+			} catch (connectionError) {
+				this.logger.error('Failed to connect to Neo4j or open session:', connectionError);
+				throw parseNeo4jError(node, connectionError, 'Failed to establish Neo4j connection or session.');
+			}
 
 
+			// 4. Loop Through Input Items
 			for (let itemIndex = 0; itemIndex < items.length; itemIndex++) {
-				// Ensure session is not null before proceeding inside the loop
+				// Ensure session is available inside the loop
 				if (!session) {
-					throw new NodeOperationError(this.getNode(), 'Failed to establish Neo4j session.', { itemIndex });
+					throw new NodeOperationError(node, 'Neo4j session is not available.', { itemIndex });
 				}
 				try {
 					const customerId = this.getNodeParameter('customerId', itemIndex, '') as string;
@@ -340,16 +354,22 @@ export class Neo4jCreateBooking implements INodeType {
 			}
 
 		} catch (error) {
+			// Handle Node-Level Errors
 			if (this.continueOnFail()) {
-				returnData.push({ json: { error: error.message } });
-				return [returnData];
+				returnData.push({ json: { error: (error as Error).message } }); // Ensure error has message
+				// Return data even on fail if continueOnFail is true
+				// The return statement was missing here in the original logic from Neo4jCreateUser
+				return this.prepareOutputData(returnData);
 			}
-			throw error;
+			// If not continuing on fail, parse and throw the error
+			if (error instanceof NodeOperationError) { throw error; } // Re-throw known errors
+			throw parseNeo4jError(node, error); // Parse other errors
 		} finally {
+			// 11. Close Session and Driver
 			if (session) {
 				try {
 					await session.close();
-					this.logger.debug('Neo4j session closed.');
+					this.logger.debug('Neo4j session closed successfully.');
 				} catch (closeError) {
 					this.logger.error('Error closing Neo4j session:', closeError);
 				}
@@ -357,7 +377,7 @@ export class Neo4jCreateBooking implements INodeType {
 			if (driver) {
 				try {
 					await driver.close();
-					this.logger.debug('Neo4j driver closed.');
+					this.logger.debug('Neo4j driver closed successfully.');
 				} catch (closeError) {
 					this.logger.error('Error closing Neo4j driver:', closeError);
 				}
