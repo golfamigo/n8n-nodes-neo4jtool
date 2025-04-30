@@ -231,9 +231,9 @@ export class Neo4jVerifyBusinessSetup implements INodeType {
 
 			// 8. 根據預約模式檢查額外要求
 			if (bookingMode === 'StaffOnly' || bookingMode === 'StaffAndResource') {
-				// 檢查員工
+				// 檢查員工 (使用修正後的 :WORKS_AT 關係)
 				const staffQuery = `
-					MATCH (b:Business {business_id: $businessId})-[:EMPLOYS]->(st:Staff)
+					MATCH (st:Staff)-[:WORKS_AT]->(b:Business {business_id: $businessId}) // Corrected relationship
 					OPTIONAL MATCH (st)-[:CAN_PROVIDE]->(s:Service)
 					OPTIONAL MATCH (st)-[:HAS_AVAILABILITY]->(sa:StaffAvailability)
 					RETURN st {.*} AS staff, count(DISTINCT s) AS serviceCount, count(DISTINCT sa) AS availabilityCount
@@ -272,41 +272,65 @@ export class Neo4jVerifyBusinessSetup implements INodeType {
 			}
 
 			if (bookingMode === 'ResourceOnly' || bookingMode === 'StaffAndResource') {
-				// 檢查資源
-				const resourcesQuery = `
-					MATCH (b:Business {business_id: $businessId})-[:HAS_RESOURCE]->(r:Resource)
-					RETURN r {.*} AS resource
+				// 檢查資源類型和資源實例
+				const resourceTypeQuery = `
+					MATCH (b:Business {business_id: $businessId})<-[:BELONGS_TO]-(rt:ResourceType)
+					RETURN count(rt) > 0 AS hasResourceType
 				`;
+				const resourceInstanceQuery = `
+					MATCH (b:Business {business_id: $businessId})-[:HAS_RESOURCE]->(r:Resource)-[:OF_TYPE]->(rt:ResourceType)
+					RETURN r {.*, typeId: rt.type_id} AS resource // Include typeId for verification
+				`;
+				const serviceRequiresResourceQuery = `
+					MATCH (b:Business {business_id: $businessId})-[:OFFERS]->(s:Service)-[:REQUIRES_RESOURCE]->(:ResourceType)
+					RETURN count(s) > 0 AS serviceRequiresResource
+				`;
+
 				try {
-					const resourcesResult = await session.run(resourcesQuery, businessQueryParams);
+					// Check for Resource Types
+					const resourceTypeResult = await session.run(resourceTypeQuery, businessQueryParams);
+					if (!resourceTypeResult.records[0]?.get('hasResourceType')) {
+						verificationResult.resources.isComplete = false;
+						verificationResult.resources.issues.push('未創建任何資源類型');
+						verificationResult.recommendations.push('請至少創建一種資源類型');
+					}
+
+					// Check for Resource Instances and their :OF_TYPE relationship
+					const resourcesResult = await session.run(resourceInstanceQuery, businessQueryParams);
 					const resources = resourcesResult.records.map(record => convertNeo4jValueToJs(record.get('resource')));
 
 					verificationResult.resources.count = resources.length;
-					verificationResult.resources.details = resources;
+					verificationResult.resources.details = resources; // Store resource details
 
 					if (resources.length === 0) {
 						verificationResult.resources.isComplete = false;
-						verificationResult.resources.issues.push('未創建任何資源');
-						verificationResult.recommendations.push('請至少創建一項資源');
+						verificationResult.resources.issues.push('未創建任何資源實例，或資源未關聯到資源類型');
+						verificationResult.recommendations.push('請至少創建一個資源實例並確保其關聯到資源類型');
 					} else {
-						// 檢查資源的完整性
+						// Check resource integrity (capacity)
 						for (const resource of resources) {
-							if (!resource.type) {
-								verificationResult.resources.isComplete = false;
-								verificationResult.resources.issues.push(`資源 "${resource.name}" 未設定類型`);
-							}
+							// Type check is now implicit via the MATCH query
 							if (resource.capacity === undefined || resource.capacity === null) {
 								verificationResult.resources.isComplete = false;
-								verificationResult.resources.issues.push(`資源 "${resource.name}" 未設定容量`);
+								verificationResult.resources.issues.push(`資源 "${resource.name}" (ID: ${resource.resource_id}) 未設定容量`);
 							}
 						}
 					}
+
+					// Check if any service requires a resource type
+					const serviceRequiresResult = await session.run(serviceRequiresResourceQuery, businessQueryParams);
+					if (!serviceRequiresResult.records[0]?.get('serviceRequiresResource')) {
+						// This might be a warning rather than an error depending on business logic
+						verificationResult.resources.issues.push('警告：沒有任何服務項目設定需要資源類型');
+						verificationResult.recommendations.push('如果服務需要特定資源（如桌子、房間），請使用 Link Service to Resource Type 節點進行關聯');
+					}
+
 				} catch (queryError) {
 					throw parseNeo4jError(node, queryError, '查詢資源資料失敗。');
 				}
 			}
 
-			// 9. 確定整體狀態
+			// 9. 確定整體狀態 (Logic remains similar, checks the isComplete flags)
 			if (
 				!verificationResult.business.isComplete ||
 				!verificationResult.businessHours.isComplete ||
