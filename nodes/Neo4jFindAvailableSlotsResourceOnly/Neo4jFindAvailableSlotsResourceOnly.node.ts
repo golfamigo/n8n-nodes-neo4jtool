@@ -315,21 +315,19 @@ export class Neo4jFindAvailableSlotsResourceOnly implements INodeType {
 					AND time(bh.end_time) >= time(slotEnd)
 				}
 
-				// 5. 檢查資源可用性 (Corrected conflict check)
-				AND rt.total_capacity >= resourceCapacity // Initial capacity check
-				AND NOT EXISTS { // Check for conflicting resource usage
-					MATCH (existing:Booking)-[:USES_RESOURCE]->(ru:ResourceUsage)-[:OF_TYPE]->(rt)
-					MATCH (existing)-[:FOR_SERVICE]->(s_existing:Service) // Get the service of the existing booking
-					WHERE existing.status <> 'Cancelled'
-					  AND existing.booking_time < slotEnd
-					  AND existing.booking_time + duration({minutes: s_existing.duration_minutes}) > slotStart // Use existing booking's duration
-					WITH rt, resourceCapacity, sum(ru.quantity) AS usedAtSlot
-					WHERE rt.total_capacity < usedAtSlot + resourceCapacity // Check if adding this booking exceeds capacity
-				}
+				// 5. 計算每個潛在時段已使用的資源總量 (Revised Logic)
+				WITH slotStart, slotEnd, b, rt, resourceCapacity // Pass necessary variables
+				OPTIONAL MATCH (existing:Booking)-[:USES_RESOURCE]->(ru:ResourceUsage)-[:OF_TYPE]->(rt)
+				MATCH (existing)-[:FOR_SERVICE]->(s_existing:Service)
+				WHERE existing.status <> 'Cancelled'
+				  AND existing.booking_time < slotEnd // Existing booking starts before potential slot ends
+				  AND existing.booking_time + duration({minutes: s_existing.duration_minutes}) > slotStart // Existing booking ends after potential slot starts
+				WITH slotStart, rt, resourceCapacity, sum(coalesce(ru.quantity, 0)) AS totalUsedDuringSlot // Aggregate total usage for the slot
 
-				// Removed redundant step 6 (TimeOnly conflict check)
+				// 6. 檢查資源容量是否足夠
+				WHERE rt.total_capacity >= totalUsedDuringSlot + resourceCapacity
 
-				// 6. 返回可用時段 (ISO 字符串) - Step number adjusted
+				// 7. 返回可用時段 (ISO 字符串)
 				RETURN toString(slotStart) AS availableSlot
 				ORDER BY slotStart
 			`;
