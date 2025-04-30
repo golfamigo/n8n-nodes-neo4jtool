@@ -10,7 +10,7 @@ import neo4j, { type Session, type Driver } from 'neo4j-driver'; // Added Driver
 import {
 	runCypherQuery,
 	// Removed convertNeo4jProperties, generateBookingId, getNeo4jSession
-	convertNeo4jValueToJs, // Added this import
+	// Removed unused import: convertNeo4jValueToJs
 } from '../neo4j/helpers/utils';
 import { toNeo4jDateTimeString } from '../neo4j/helpers/timeUtils';
 import {
@@ -314,14 +314,15 @@ export class Neo4jCreateBooking implements INodeType {
 					// Process results
 					results.forEach((record) => {
 						// record.json contains the object representation of the Neo4j record
-						// The query returns 'bk', so we access it via record.json.bk
-						const bookingNodeData = record.json.bk as IDataObject | undefined; // Type assertion
-						if (bookingNodeData && typeof bookingNodeData === 'object' && bookingNodeData.properties) {
-							// convertNeo4jValueToJs was already applied by runCypherQuery/wrapNeo4jResult
-							returnData.push({ json: bookingNodeData.properties, pairedItem: { item: itemIndex } });
+						// The query returns 'bk', which is the converted node object { elementId, labels, properties }
+						const bookingNode = record.json.bk as IDataObject | undefined;
+						// Ensure bookingNode is an object and has the properties field which should be IDataObject
+						if (bookingNode && typeof bookingNode === 'object' && bookingNode.properties && typeof bookingNode.properties === 'object') {
+							// Assign the properties object directly to json
+							returnData.push({ json: bookingNode.properties as IDataObject, pairedItem: { item: itemIndex } });
 						} else {
 							// Handle case where booking node might not be returned as expected
-							this.logger.warn(`[Create Booking] Booking node data not found or invalid in query result for item ${itemIndex}`, { recordData: record.json });
+							this.logger.warn(`[Create Booking] Booking node data or properties not found/invalid in query result for item ${itemIndex}`, { recordData: record.json });
 							// Optionally throw an error or return an empty object
 							returnData.push({ json: { error: 'Booking creation confirmed but node data retrieval failed.' }, pairedItem: { item: itemIndex } });
 						}
