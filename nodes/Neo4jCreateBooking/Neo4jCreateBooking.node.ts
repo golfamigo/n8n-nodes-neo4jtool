@@ -37,6 +37,8 @@ export class Neo4jCreateBooking implements INodeType {
 		},
 		inputs: ['main'],
 		outputs: ['main'],
+		// @ts-ignore - Workaround
+		usableAsTool: true,
 		credentials: [
 			{
 				name: 'neo4jApi',
