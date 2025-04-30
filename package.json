@@ -80,7 +80,8 @@
       "dist/nodes/Neo4jFindCustomerByExternalIdAndBusinessId/Neo4jFindCustomerByExternalIdAndBusinessId.node.js",
       "dist/nodes/Neo4jFindStaffByExternalId/Neo4jFindStaffByExternalId.node.js",
       "dist/nodes/Neo4jVerifyBusinessSetup/Neo4jVerifyBusinessSetup.node.js",
-      "dist/nodes/Neo4jCreateResourceType/Neo4jCreateResourceType.node.js"
+      "dist/nodes/Neo4jCreateResourceType/Neo4jCreateResourceType.node.js",
+      "dist/nodes/Neo4jLinkServiceToResourceType/Neo4jLinkServiceToResourceType.node.js"
     ]
   },
   "devDependencies": {
