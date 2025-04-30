@@ -189,7 +189,7 @@ export class Neo4jVerifyBusinessSetup implements INodeType {
 					const definedDays = new Set(businessHours.map(bh => bh.day_of_week));
 					for (let day = 1; day <= 7; day++) {
 						if (!definedDays.has(day)) {
-							verificationResult.businessHours.issues.push(`未設定星期${day}的營業時間`);
+							verificationResult.businessHours.issues.push(`未設定星期${day}的營業時間,如果缺失的設定原本就是休息日可忽略警告`);
 						}
 					}
 					if (verificationResult.businessHours.issues.length > 0) {

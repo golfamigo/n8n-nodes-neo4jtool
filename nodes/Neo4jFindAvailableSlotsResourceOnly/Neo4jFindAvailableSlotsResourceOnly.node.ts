@@ -315,26 +315,21 @@ export class Neo4jFindAvailableSlotsResourceOnly implements INodeType {
 					AND time(bh.end_time) >= time(slotEnd)
 				}
 
-				// 5. 檢查資源可用性
+				// 5. 檢查資源可用性 (Corrected conflict check)
 				AND rt.total_capacity >= resourceCapacity // Initial capacity check
 				AND NOT EXISTS { // Check for conflicting resource usage
 					MATCH (existing:Booking)-[:USES_RESOURCE]->(ru:ResourceUsage)-[:OF_TYPE]->(rt)
+					MATCH (existing)-[:FOR_SERVICE]->(s_existing:Service) // Get the service of the existing booking
 					WHERE existing.status <> 'Cancelled'
 					  AND existing.booking_time < slotEnd
-					  AND existing.booking_time + serviceDuration > slotStart
+					  AND existing.booking_time + duration({minutes: s_existing.duration_minutes}) > slotStart // Use existing booking's duration
 					WITH rt, resourceCapacity, sum(ru.quantity) AS usedAtSlot
 					WHERE rt.total_capacity < usedAtSlot + resourceCapacity // Check if adding this booking exceeds capacity
 				}
 
-				// 6. 檢查預約衝突 (TimeOnly part - redundant if resource check is sufficient, but kept for clarity)
-				AND NOT EXISTS {
-					MATCH (bk:Booking)-[:AT_BUSINESS]->(b)
-					WHERE bk.status <> 'Cancelled'
-					AND bk.booking_time < slotEnd
-					AND bk.booking_time + serviceDuration > slotStart
-				}
+				// Removed redundant step 6 (TimeOnly conflict check)
 
-				// 7. 返回可用時段 (ISO 字符串)
+				// 6. 返回可用時段 (ISO 字符串) - Step number adjusted
 				RETURN toString(slotStart) AS availableSlot
 				ORDER BY slotStart
 			`;
