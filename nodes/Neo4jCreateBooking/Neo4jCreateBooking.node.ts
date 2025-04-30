@@ -221,9 +221,7 @@ export class Neo4jCreateBooking implements INodeType {
 					this.logger.debug(`[Create Booking] Availability check passed for time: ${bookingTime}`);
 
 					// 3. Create Booking if check passed
-					// const bookingId = generateBookingId(); // Removed, will use apoc.create.uuid()
 					const createParams: IDataObject = {
-						// bookingId, // Removed
 						customerId,
 						businessId,
 						serviceId,
@@ -243,44 +241,6 @@ export class Neo4jCreateBooking implements INodeType {
 						MATCH (b:Business {business_id: $businessId})
 						MATCH (s:Service {service_id: $serviceId})
 
-						// Create Booking node
-						CREATE (bk:Booking {
-							booking_id: $bookingId,
-							customer_id: $customerId,
-							business_id: $businessId,
-							service_id: $serviceId,
-							booking_time: datetime($bookingTime),
-							status: $status,
-							notes: $notes,
-							created_at: datetime()
-						})
-
-						// Create base relationships
-						MERGE (c)-[:MAKES]->(bk)
-						MERGE (bk)-[:AT_BUSINESS]->(b)
-						MERGE (bk)-[:FOR_SERVICE]->(s)
-
-						// Create optional relationships based on parameters
-						WITH bk, c, b, s
-						${(bookingMode === 'StaffOnly' || bookingMode === 'StaffAndResource') ? `
-						OPTIONAL MATCH (st:Staff {staff_id: $staffId})
-						WHERE st IS NOT NULL
-						MERGE (bk)-[:SERVED_BY]->(st)
-						` : ''}
-						WITH bk, c, b, s
-						${(bookingMode === 'ResourceOnly' || bookingMode === 'StaffAndResource') ? `
-						OPTIONAL MATCH (rt:ResourceType {type_id: $resourceTypeId})
-						WHERE rt IS NOT NULL AND $resourceQuantity IS NOT NULL
-						CREATE (ru:ResourceUsage {
-							usage_id: apoc.create.uuid(),
-							booking_id: $bookingId,
-							resource_type_id: $resourceTypeId,
-							quantity: $resourceQuantity
-						})
-						MERGE (bk)-[:USES_RESOURCE]->(ru)
-						MERGE (ru)-[:OF_TYPE]->(rt)
-						` : ''}
-
 						// Create Booking node using apoc.create.uuid() for booking_id
 						CREATE (bk:Booking {
 							booking_id: apoc.create.uuid(), // Use apoc.create.uuid()
@@ -299,19 +259,19 @@ export class Neo4jCreateBooking implements INodeType {
 						MERGE (bk)-[:FOR_SERVICE]->(s)
 
 						// Create optional relationships based on parameters
-						WITH bk, c, b, s
+						WITH bk, c, b, s // Pass bk along
 						${(bookingMode === 'StaffOnly' || bookingMode === 'StaffAndResource') ? `
 						OPTIONAL MATCH (st:Staff {staff_id: $staffId})
 						WHERE st IS NOT NULL
 						MERGE (bk)-[:SERVED_BY]->(st)
 						` : ''}
-						WITH bk, c, b, s
+						WITH bk, c, b, s // Pass bk along
 						${(bookingMode === 'ResourceOnly' || bookingMode === 'StaffAndResource') ? `
 						OPTIONAL MATCH (rt:ResourceType {type_id: $resourceTypeId})
 						WHERE rt IS NOT NULL AND $resourceQuantity IS NOT NULL
 						CREATE (ru:ResourceUsage {
 							usage_id: apoc.create.uuid(),
-							booking_id: bk.booking_id, // Use the generated booking_id
+							booking_id: bk.booking_id, // Use the generated booking_id from bk
 							resource_type_id: $resourceTypeId,
 							quantity: $resourceQuantity
 						})
@@ -320,7 +280,7 @@ export class Neo4jCreateBooking implements INodeType {
 						` : ''}
 
 						// Return the created booking
-						RETURN bk
+						RETURN bk {.*} AS booking // Return properties directly
 					`;
 
 					this.logger.debug('[Create Booking] Executing create query with params:', createParams);
