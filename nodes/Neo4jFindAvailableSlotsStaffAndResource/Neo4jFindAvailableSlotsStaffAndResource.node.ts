@@ -324,22 +324,23 @@ export class Neo4jFindAvailableSlotsStaffAndResource implements INodeType {
 					AND time(bh.end_time) >= time(slotEnd)
 				}
 
-				// 5. 檢查員工可用性 (使用修正後的 v4 邏輯)
-				AND EXISTS {
-					WITH st, slotStart, slotEnd, slotDate, slotDayOfWeek // Pass context
-					OPTIONAL MATCH (st)-[:HAS_AVAILABILITY]->(sched:StaffAvailability {type: 'SCHEDULE', day_of_week: slotDayOfWeek})
-					OPTIONAL MATCH (st)-[:HAS_AVAILABILITY]->(exc:StaffAvailability {type: 'EXCEPTION', date: slotDate})
-					WITH st, slotStart, slotEnd, slotDate, slotDayOfWeek, sched, exc,
-						 (exc IS NOT NULL AND time(exc.start_time) <= time(slotStart) AND time(exc.end_time) >= time(slotEnd))
-						 OR
-						 (sched IS NOT NULL AND time(sched.start_time) <= time(slotStart) AND time(sched.end_time) >= time(slotEnd))
-						 AS isCoveredByWindow
-					WITH st, slotStart, slotEnd, slotDate, slotDayOfWeek, isCoveredByWindow,
-						 EXISTS {
-							 MATCH (st)-[:HAS_AVAILABILITY]->(blockingExc:StaffAvailability {type: 'EXCEPTION', date: slotDate})
-							 WHERE time(blockingExc.start_time) = time({hour: 0, minute: 0}) AND time(blockingExc.end_time) >= time({hour: 23, minute: 59})
-						 } AS isBlockedByFullDayException
-					RETURN isCoveredByWindow AND NOT isBlockedByFullDayException // Return true if available
+				// 5. 檢查員工可用性 (修正版 - 拆分檢查)
+				// 檢查時段是否被排班或可用例外覆蓋
+				AND (
+					EXISTS {
+						MATCH (st)-[:HAS_AVAILABILITY]->(sched:StaffAvailability {type: 'SCHEDULE', day_of_week: slotDayOfWeek})
+						WHERE time(sched.start_time) <= time(slotStart) AND time(sched.end_time) >= time(slotEnd)
+					}
+					OR EXISTS {
+						MATCH (st)-[:HAS_AVAILABILITY]->(exc:StaffAvailability {type: 'EXCEPTION', date: slotDate})
+						WHERE time(exc.start_time) <= time(slotStart) AND time(exc.end_time) >= time(slotEnd)
+					}
+				)
+				// 檢查沒有全天阻塞的例外
+				AND NOT EXISTS {
+					MATCH (st)-[:HAS_AVAILABILITY]->(blockingExc:StaffAvailability {type: 'EXCEPTION', date: slotDate})
+					WHERE time(blockingExc.start_time) = time({hour: 0, minute: 0})
+					  AND time(blockingExc.end_time) >= time({hour: 23, minute: 59})
 				}
 
 				// 6. 檢查資源可用性
