@@ -290,15 +290,15 @@ export class Neo4jCreateBooking implements INodeType {
 					// Process results
 					results.forEach((record) => {
 						// record.json contains the object representation of the Neo4j record
-						// The query returns 'bk', which is the converted node object { elementId, labels, properties }
-						const bookingNode = record.json.bk as IDataObject | undefined;
-						// Ensure bookingNode is an object and has the properties field which should be IDataObject
-						if (bookingNode && typeof bookingNode === 'object' && bookingNode.properties && typeof bookingNode.properties === 'object') {
+						// The query returns 'booking', which contains the properties map {.*}
+						const bookingProperties = record.json.booking as IDataObject | undefined; // Changed bk to booking
+						// Ensure bookingProperties is an object
+						if (bookingProperties && typeof bookingProperties === 'object') {
 							// Assign the properties object directly to json
-							returnData.push({ json: bookingNode.properties as IDataObject, pairedItem: { item: itemIndex } });
+							returnData.push({ json: bookingProperties, pairedItem: { item: itemIndex } }); // Use bookingProperties directly
 						} else {
 							// Handle case where booking node might not be returned as expected
-							this.logger.warn(`[Create Booking] Booking node data or properties not found/invalid in query result for item ${itemIndex}`, { recordData: record.json });
+							this.logger.warn(`[Create Booking] Booking properties not found or invalid in query result for item ${itemIndex}`, { recordData: record.json });
 							// Optionally throw an error or return an empty object
 							returnData.push({ json: { error: 'Booking creation confirmed but node data retrieval failed.' }, pairedItem: { item: itemIndex } });
 						}
