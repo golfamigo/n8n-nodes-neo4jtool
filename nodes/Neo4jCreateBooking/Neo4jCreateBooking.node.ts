@@ -30,7 +30,7 @@ export class Neo4jCreateBooking implements INodeType {
 	description: INodeTypeDescription = {
 		displayName: 'Neo4j Create Booking',
 		name: 'neo4jCreateBooking',
-		icon: 'file:neo4j.svg',
+		icon: 'file:../neo4j/neo4j.svg',
 		group: ['transform'],
 		version: 1,
 		description: 'Creates a new booking record in Neo4j after checking availability based on business booking mode',
