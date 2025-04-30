@@ -21,9 +21,10 @@ import {
 // --- 導入時間處理工具函數 ---
 import {
 	normalizeDateTime,
-	generateTimeSlotsWithBusinessHours,
-	getIsoWeekday,
+	// generateTimeSlotsWithBusinessHours, // Removed as we generate slots in Cypher
+	getIsoWeekday, // Keep for potential future use or logging if needed
 } from '../neo4j/helpers/timeUtils';
+// Removed duplicate import: import neo4j from 'neo4j-driver';
 
 // --- Node Class Definition ---
 export class Neo4jFindAvailableSlotsTimeOnly implements INodeType {
@@ -210,129 +211,101 @@ export class Neo4jFindAvailableSlotsTimeOnly implements INodeType {
 				throw parseNeo4jError(node, preQueryError, '獲取商家/服務信息失敗。');
 			}
 
-			// 5. 使用時間工具函數生成潛在時段
-			const potentialSlots = generateTimeSlotsWithBusinessHours(
-				normalizedStartDateTime,
-				normalizedEndDateTime,
-				businessHours,
-				intervalMinutes
-			);
+			// 5. 使用高效 Cypher 查詢直接生成和過濾時段
+			const efficientQuery = `
+				// 輸入參數
+				WITH datetime($startDateTime) AS rangeStart,
+					 datetime($endDateTime) AS rangeEnd,
+					 $intervalMinutes AS intervalMinutes,
+					 $serviceDuration AS serviceDurationMinutes,
+					 $businessId AS businessId
 
-			this.logger.debug(`生成了 ${potentialSlots.length} 個潛在時段`);
+				// 1. 生成時間序列
+				WITH rangeStart, rangeEnd, intervalMinutes, serviceDurationMinutes, businessId,
+					 range(0, duration.between(rangeStart, rangeEnd).minutes / intervalMinutes) AS indices
+				UNWIND indices AS index
+				WITH rangeStart + duration({minutes: index * intervalMinutes}) AS slotStart,
+					 duration({minutes: serviceDurationMinutes}) AS serviceDuration,
+					 businessId
 
-			if (potentialSlots.length === 0) {
-				this.logger.debug('根據營業時間和時間範圍未生成任何潛在時段。');
+				// 2. 計算結束時間和星期幾
+				WITH slotStart, serviceDuration, slotStart + serviceDuration AS slotEnd,
+					 date(slotStart).dayOfWeek AS slotDayOfWeek,
+					 businessId
 
-				// 返回空結果，但提供信息性消息
-				returnData.push({
-					json: {
-						availableSlots: [],
-						totalPotentialSlots: 0,
-						filteredOutSlots: 0,
-						message: "未找到潛在時段 - 請檢查營業時間和日期範圍",
-						mode: "TimeOnly"
-					},
-					pairedItem: { item: itemIndex },
-				});
+				// 3. 匹配商家
+				MATCH (b:Business {business_id: businessId})
 
-				return this.prepareOutputData(returnData);
-			}
-
-			// 6. 優化的 TimeOnly 查詢 - 僅檢查營業時間和預約衝突
-			const timeOnlyQuery = `
-				// 輸入：潛在時段開始時間列表 (ISO 字符串)
-				UNWIND $potentialSlots AS slotStr
-				WITH datetime(slotStr) AS slotStart
-
-				// 獲取商家、服務、時長
-				MATCH (b:Business {business_id: $businessId})
-				MATCH (s:Service {service_id: $serviceId})<-[:OFFERS]-(b)
-				WITH b, s, slotStart, duration({minutes: s.duration_minutes}) AS serviceDuration
-				WITH b, s, slotStart, serviceDuration, slotStart + serviceDuration AS slotEnd, date(slotStart) AS slotDate, date(slotStart).dayOfWeek AS slotDayOfWeek
-
-				// 檢查商家營業時間 - 使用明確的轉換確保格式一致
-				// 我們知道這些營業時間已經通過生成潛在時段時篩選，這裡是額外檢查
-				MATCH (b)-[:HAS_HOURS]->(bh:BusinessHours)
-				WHERE bh.day_of_week = slotDayOfWeek
+				// 4. 檢查營業時間
+				WHERE EXISTS {
+					MATCH (b)-[:HAS_HOURS]->(bh:BusinessHours)
+					WHERE bh.day_of_week = slotDayOfWeek
 					AND time(bh.start_time) <= time(slotStart)
 					AND time(bh.end_time) >= time(slotEnd)
-
-				WITH b, slotStart, slotEnd, serviceDuration, toString(slotStart) AS slotStartStr
-
-				// 檢查是否有衝突預約 - 僅檢查時間衝突，不考慮資源或員工
-				// 使用 ResourceUsage 記錄確保一致性
-				WHERE NOT EXISTS {
-					MATCH (bk:Booking)-[:AT_BUSINESS]->(b)
-					WHERE bk.booking_time < slotEnd AND
-						bk.booking_time + duration({minutes: $durationMinutes}) > slotStart
 				}
 
-				RETURN slotStartStr AS availableSlot
-				ORDER BY availableSlot
+				// 5. 檢查預約衝突 (TimeOnly 模式)
+				AND NOT EXISTS {
+					MATCH (bk:Booking)-[:AT_BUSINESS]->(b)
+					WHERE bk.status <> 'Cancelled'
+					AND bk.booking_time < slotEnd
+					AND bk.booking_time + serviceDuration > slotStart // Use duration directly
+				}
+
+				// 6. 返回可用時段 (ISO 字符串)
+				RETURN toString(slotStart) AS availableSlot
+				ORDER BY slotStart
 			`;
 
-			const timeOnlyParams: IDataObject = {
+			const efficientParams: IDataObject = {
 				businessId,
-				serviceId,
-				potentialSlots,
-				durationMinutes: neo4j.int(durationMinutes)
+				serviceId, // Still needed? No, duration is passed directly
+				startDateTime: normalizedStartDateTime, // Use normalized dates
+				endDateTime: normalizedEndDateTime,
+				intervalMinutes: neo4j.int(intervalMinutes),
+				serviceDuration: neo4j.int(durationMinutes), // Pass duration from preQuery
 			};
 
 			try {
-				// 7. 執行 TimeOnly 查詢
-				this.logger.debug('執行時間模式可用時段查詢', {
-					potentialSlotsCount: potentialSlots.length,
-					firstSlot: potentialSlots.length > 0 ? potentialSlots[0] : null,
-					lastSlot: potentialSlots.length > 0 ? potentialSlots[potentialSlots.length - 1] : null
-				});
+				// 6. 執行高效查詢
+				this.logger.debug('執行高效 TimeOnly 可用時段查詢', efficientParams);
 
 				if (!session) {
 					throw new NodeOperationError(node, 'Neo4j 會話未初始化', { itemIndex });
 				}
 
-				// 使用通用查詢執行函數以獲得更好的錯誤處理
 				const availableSlotsResults = await runCypherQuery.call(
 					this,
 					session,
-					timeOnlyQuery,
-					timeOnlyParams,
-					false,
+					efficientQuery,
+					efficientParams,
+					false, // Read query
 					itemIndex
 				);
 
-				// 從查詢結果中提取可用時段
-				const availableSlots: string[] = [];
+				// 7. 從查詢結果中提取可用時段
+				const availableSlots: string[] = availableSlotsResults.map(record => record.json.availableSlot as string);
 
-				if (availableSlotsResults.length > 0) {
-					for (const result of availableSlotsResults) {
-						const slot = result.json?.availableSlot;
-						if (slot) {
-							availableSlots.push(String(slot));
-						}
-					}
-				}
-
-				this.logger.debug(`找到 ${availableSlots.length} 個可用時段，從 ${potentialSlots.length} 個潛在時段中篩選`);
+				this.logger.debug(`找到 ${availableSlots.length} 個可用時段`);
 
 				// 8. 準備結果數據
 				returnData.push({
 					json: {
 						availableSlots,
-						totalPotentialSlots: potentialSlots.length,
-						filteredOutSlots: potentialSlots.length - availableSlots.length,
 						mode: "TimeOnly",
 						serviceId,
 						serviceDuration: durationMinutes
 					},
 					pairedItem: { item: itemIndex },
 				});
+
 			} catch (queryError) {
 				this.logger.error('執行可用性查詢時出錯:', queryError);
 				throw parseNeo4jError(node, queryError, '檢查時段可用性失敗。');
 			}
 
 			// 9. 返回結果
-			return this.prepareOutputData(returnData);
+			return this.prepareOutputData(returnData); // Moved outside the try-catch for query execution
 
 		} catch (error) {
 			// 10. 處理節點級錯誤
