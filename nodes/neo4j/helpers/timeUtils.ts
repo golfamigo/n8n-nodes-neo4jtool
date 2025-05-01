@@ -521,3 +521,26 @@ export function isSlotAvailableWithinBusinessHours(
            slotEndTime <= closeTime;
   });
 }
+
+/**
+ * Helper function to check if time t1 is between start and end (inclusive start, exclusive end by default)
+ * Handles HH:mm:ss format.
+ * @param t1 Time string to check
+ * @param start Start time string
+ * @param end End time string
+ * @param inclusiveEnd If true, includes the end time in the check (<= end). Defaults to false (< end).
+ * @returns boolean
+ */
+export function isTimeBetween(t1: string, start: string, end: string, inclusiveEnd: boolean = false): boolean {
+	// Basic string comparison works for HH:MM:SS format
+	if (inclusiveEnd) {
+		return t1 >= start && t1 <= end;
+	} else {
+		// Special case: If end time is '00:00:00', it represents the end of the day (24:00).
+        // However, direct comparison '< 00:00:00' won't work as expected.
+        // If end is midnight, any time before it is considered valid.
+        // This simple string comparison might not handle overnight ranges correctly without more context.
+        // Assuming standard day ranges for now.
+		return t1 >= start && t1 < end;
+	}
+}

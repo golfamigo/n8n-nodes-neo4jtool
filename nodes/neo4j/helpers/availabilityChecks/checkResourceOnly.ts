@@ -1,96 +1,102 @@
 import type { Session } from 'neo4j-driver';
-import type { IExecuteFunctions, IDataObject } from 'n8n-workflow';
+import type { IExecuteFunctions } from 'n8n-workflow'; // Removed unused IDataObject
 import { NodeOperationError } from 'n8n-workflow';
-import neo4j from 'neo4j-driver';
+// Removed unused neo4j import
 import { runCypherQuery, convertNeo4jValueToJs } from '../utils';
-import { getIsoWeekday } from '../timeUtils'; // Import necessary time utils
+// Removed unused getIsoWeekday import
+import { DateTime } from 'luxon'; // Import luxon
+import { checkTimeOnlyAvailability, TimeOnlyCheckParams } from './checkTimeOnly'; // Import TimeOnly check
 
 export interface ResourceOnlyCheckParams {
-    businessId: string;
-    serviceId: string; // Needed to get duration
-    resourceTypeId: string;
-    resourceQuantity: number;
-    bookingTime: string; // ISO String (already normalized expected)
-    itemIndex: number;
-    node: IExecuteFunctions; // To throw NodeOperationError correctly
+	businessId: string;
+	serviceId: string; // Needed to get duration
+	resourceTypeId: string;
+	resourceQuantity: number;
+	bookingTime: string; // ISO String (already normalized expected)
+	itemIndex: number;
+	node: IExecuteFunctions; // To throw NodeOperationError correctly
+	customerId?: string; // Optional for customer conflict check
 }
 
 export async function checkResourceOnlyAvailability(
-    session: Session,
-    params: ResourceOnlyCheckParams,
-    context: IExecuteFunctions,
+	session: Session,
+	params: ResourceOnlyCheckParams,
+	context: IExecuteFunctions,
 ): Promise<void> {
-    context.logger.debug(`[ResourceOnly Check] Checking for resource type: ${params.resourceTypeId}, quantity: ${params.resourceQuantity} at time: ${params.bookingTime}`);
+	context.logger.debug(`[ResourceOnly Check v2] Checking for resource type: ${params.resourceTypeId}, quantity: ${params.resourceQuantity} at time: ${params.bookingTime}`);
 
-    // 1. Get Service Duration
-    const serviceCheckQuery = `
-        MATCH (s:Service {service_id: $serviceId})<-[:OFFERS]-(b:Business {business_id: $businessId})
+	// --- 1. Perform TimeOnly Checks (Duration, Business Hours, General Conflicts, Customer Conflicts) ---
+	const timeOnlyParams: TimeOnlyCheckParams = {
+		businessId: params.businessId,
+		serviceId: params.serviceId,
+		bookingTime: params.bookingTime,
+		itemIndex: params.itemIndex,
+		node: params.node,
+		customerId: params.customerId,
+	};
+	await checkTimeOnlyAvailability(session, timeOnlyParams, context);
+	context.logger.debug('[ResourceOnly Check v2] TimeOnly checks passed.');
+
+	// --- 2. Calculate Slot Times (again, needed for resource checks) ---
+	// We need serviceDuration again, could potentially pass it from TimeOnly check if refactored
+	const serviceDurationQuery = `
+        MATCH (s:Service {service_id: $serviceId})
         RETURN s.duration_minutes AS serviceDuration
     `;
-    const serviceParams: IDataObject = { serviceId: params.serviceId, businessId: params.businessId };
-    const serviceResults = await runCypherQuery.call(context, session, serviceCheckQuery, serviceParams, false, params.itemIndex);
-    if (serviceResults.length === 0) {
-        throw new NodeOperationError(params.node.getNode(), `Service ID ${params.serviceId} does not exist for Business ID ${params.businessId}`, { itemIndex: params.itemIndex });
-    }
-    const serviceDuration = convertNeo4jValueToJs(serviceResults[0].json.serviceDuration);
-    if (serviceDuration === null || typeof serviceDuration !== 'number' || serviceDuration <= 0) {
-        throw new NodeOperationError(params.node.getNode(), `Invalid or missing service duration for Service ID ${params.serviceId}`, { itemIndex: params.itemIndex });
-    }
-    context.logger.debug(`[ResourceOnly Check] Service duration: ${serviceDuration} minutes`);
+	const serviceDurationParams = { serviceId: params.serviceId };
+	const serviceDurationResults = await runCypherQuery.call(context, session, serviceDurationQuery, serviceDurationParams, false, params.itemIndex);
+	const serviceDuration = convertNeo4jValueToJs(serviceDurationResults[0]?.json.serviceDuration);
+	if (serviceDuration === null || typeof serviceDuration !== 'number' || serviceDuration <= 0) {
+		throw new NodeOperationError(params.node.getNode(), `Could not re-fetch service duration for Service ID ${params.serviceId}`, { itemIndex: params.itemIndex });
+	}
 
-    // Calculate day of week using helper function
-    const slotDayOfWeek = getIsoWeekday(params.bookingTime);
-    if (slotDayOfWeek === null) {
-         throw new NodeOperationError(params.node.getNode(), `Could not determine day of week for booking time ${params.bookingTime}.`, { itemIndex: params.itemIndex });
-    }
-     context.logger.debug(`[ResourceOnly Check] Calculated day of week: ${slotDayOfWeek}`);
+	const slotStart = DateTime.fromISO(params.bookingTime);
+	const slotEnd = slotStart.plus({ minutes: serviceDuration });
 
-    // 2. Perform combined check for Business Hours and Resource Availability
-    const availabilityCheckQuery = `
-        // Input parameters
-        WITH datetime($bookingTime) AS slotStart,
-             duration({minutes: $serviceDuration}) AS serviceDuration
-        WITH slotStart, slotStart + serviceDuration AS slotEnd, $slotDayOfWeek AS slotDayOfWeek, serviceDuration, $serviceDuration AS durationMinutesVal // Use passed day of week
+	if (!slotStart.isValid || !slotEnd.isValid) { // Should be caught by TimeOnly check, but double-check
+		throw new NodeOperationError(params.node.getNode(), `Invalid booking time format: ${params.bookingTime}`, { itemIndex: params.itemIndex });
+	}
 
-        // Match business and resource type
-        MATCH (b:Business {business_id: $businessId})
+	// --- 3. Get Resource Type Capacity ---
+	const capacityQuery = `
         MATCH (rt:ResourceType {type_id: $resourceTypeId, business_id: $businessId})
-
-        // Check 1: Business Hours
-        WITH b, rt, slotStart, slotEnd, serviceDuration, slotDayOfWeek, durationMinutesVal
-        MATCH (b)-[:HAS_HOURS]->(bh:BusinessHours)
-        WHERE bh.day_of_week = slotDayOfWeek // Compare with passed parameter
-        WITH b, rt, slotStart, slotEnd, serviceDuration, slotDayOfWeek, durationMinutesVal, collect([time(bh.start_time), time(bh.end_time)]) AS businessHourRanges
-        WHERE size(businessHourRanges) > 0 AND any(range IN businessHourRanges WHERE range[0] <= time(slotStart) AND range[1] >= time(slotEnd))
-
-        // Check 2: Resource Availability
-        WITH rt, slotStart, slotEnd, durationMinutesVal
-        OPTIONAL MATCH (existing:Booking)-[:USES_RESOURCE]->(ru:ResourceUsage)-[:OF_TYPE]->(rt)
-        WHERE existing.status <> 'Cancelled' // Ignore cancelled bookings
-          AND existing.booking_time < slotEnd
-          AND existing.booking_time + duration({minutes: durationMinutesVal}) > slotStart
-        WITH rt, sum(COALESCE(ru.quantity, 0)) AS usedResources
-        WHERE rt.total_capacity >= usedResources + $resourceQuantity
-
-        // If all checks pass, return a confirmation
-        RETURN rt.type_id AS availableResourceTypeId
+        RETURN rt.total_capacity AS totalCapacity
     `;
-    const availabilityCheckParams: IDataObject = {
-        resourceTypeId: params.resourceTypeId,
-        businessId: params.businessId,
-        bookingTime: params.bookingTime,
-        serviceDuration: serviceDuration, // Use calculated duration
-        resourceQuantity: neo4j.int(params.resourceQuantity),
-        slotDayOfWeek: neo4j.int(slotDayOfWeek), // Pass calculated day of week
-    };
+	const capacityParams = { resourceTypeId: params.resourceTypeId, businessId: params.businessId };
+	const capacityResults = await runCypherQuery.call(context, session, capacityQuery, capacityParams, false, params.itemIndex);
+	if (capacityResults.length === 0) {
+		throw new NodeOperationError(params.node.getNode(), `Resource Type ${params.resourceTypeId} not found for Business ${params.businessId}.`, { itemIndex: params.itemIndex });
+	}
+	const totalCapacity = convertNeo4jValueToJs(capacityResults[0].json.totalCapacity);
+	if (totalCapacity === null || typeof totalCapacity !== 'number') {
+		throw new NodeOperationError(params.node.getNode(), `Invalid total capacity for Resource Type ${params.resourceTypeId}.`, { itemIndex: params.itemIndex });
+	}
+	context.logger.debug(`[ResourceOnly Check v2] Resource Type ${params.resourceTypeId} total capacity: ${totalCapacity}`);
 
-    context.logger.debug('[ResourceOnly Check] Executing combined availability query', availabilityCheckParams);
-    const availabilityResults = await runCypherQuery.call(context, session, availabilityCheckQuery, availabilityCheckParams, false, params.itemIndex);
+	// --- 4. Calculate Used Resource Quantity in Slot ---
+	const usedQuantityQuery = `
+        MATCH (existing:Booking)-[:USES_RESOURCE]->(ru:ResourceUsage)-[:OF_TYPE]->(:ResourceType {type_id: $resourceTypeId})
+        MATCH (existing)-[:FOR_SERVICE]->(s_existing:Service) // Get existing booking's service
+        WHERE existing.status <> 'Cancelled'
+          AND existing.booking_time < datetime($slotEnd) // Existing booking starts before potential slot ends
+          AND existing.booking_time + duration({minutes: s_existing.duration_minutes}) > datetime($slotStart) // Existing booking ends after potential slot starts
+        RETURN sum(coalesce(ru.quantity, 0)) AS currentlyUsed
+    `;
+	const usedQuantityParams = {
+		resourceTypeId: params.resourceTypeId,
+		slotStart: slotStart.toISO(),
+		slotEnd: slotEnd.toISO(),
+	};
+	const usedQuantityResults = await runCypherQuery.call(context, session, usedQuantityQuery, usedQuantityParams, false, params.itemIndex);
+	const currentlyUsed = convertNeo4jValueToJs(usedQuantityResults[0]?.json.currentlyUsed) || 0;
+	context.logger.debug(`[ResourceOnly Check v2] Resource Type ${params.resourceTypeId} currently used at slot: ${currentlyUsed}`);
 
-    if (availabilityResults.length === 0) {
-        // Query returned no rows, meaning one of the checks failed
-        throw new NodeOperationError(params.node.getNode(), `Resource type ${params.resourceTypeId} is not available at ${params.bookingTime} due to business hours or insufficient capacity. Required: ${params.resourceQuantity}.`, { itemIndex: params.itemIndex });
-    }
+	// --- 5. Check Resource Capacity ---
+	if (totalCapacity < currentlyUsed + params.resourceQuantity) {
+		throw new NodeOperationError(params.node.getNode(), `Resource Type ${params.resourceTypeId} does not have enough capacity (${totalCapacity} total, ${currentlyUsed} used) for the required quantity (${params.resourceQuantity}) at ${params.bookingTime}.`, { itemIndex: params.itemIndex });
+	}
+	context.logger.debug('[ResourceOnly Check v2] Resource capacity check passed.');
 
-    context.logger.debug(`[ResourceOnly Check] Passed for resource type ${params.resourceTypeId}`);
+	// If all checks passed
+	context.logger.debug(`[ResourceOnly Check v2] All checks passed for resource type ${params.resourceTypeId} at ${params.bookingTime}`);
 }

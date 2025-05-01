@@ -29,7 +29,7 @@ export class Neo4jCreateService implements INodeType {
 		group: ['database'],
 		version: 1,
 		subtitle: '={{$parameter["name"]}} for {{$parameter["businessId"]}}', // Show service and business ID
-		description: '為指定商家創建一個新的服務項目。,businessId: 提供此服務的商家 ID (UUID),name: 服務名稱,duration_minutes: 服務持續時間（分鐘）,description: 服務描述,price: 服務價格（整數，例如分）(可選)。', // From TaskInstructions.md
+		description: '為指定商家創建一個新的服務項目。,businessId: 提供此服務的商家 ID (UUID),name: 服務名稱,duration_minutes: 服務持續時間（分鐘）,description: 服務描述,price: 服務價格（整數，例如分）(可選),bookingMode: 該服務的預約檢查模式。', // Added bookingMode description
 		defaults: {
 			name: 'Neo4j Create Service',
 		},
@@ -95,7 +95,30 @@ export class Neo4jCreateService implements INodeType {
 				default: 0,
 				description: '服務價格（整數，例如分）(可選)',
 			},
-			// REMOVED categoryId property
+			// Use collection for booking mode to allow override from input
+			{
+				displayName: 'Options',
+				name: 'options',
+				type: 'collection',
+				placeholder: 'Add Option',
+				default: {},
+				options: [
+					{
+						displayName: 'Booking Mode (UI Setting)',
+						name: 'bookingModeUISetting', // Use a distinct name for UI setting
+						type: 'options',
+						options: [
+							{ name: 'Time Only', value: 'TimeOnly' },
+							{ name: 'Staff Only', value: 'StaffOnly' },
+							{ name: 'Resource Only', value: 'ResourceOnly' },
+							{ name: 'Staff And Resource', value: 'StaffAndResource' },
+						],
+						// Removed required: true as it has a default value
+						default: 'TimeOnly',
+						description: '服務的預約檢查模式 (UI 設定)。如果輸入資料中包含 `query.Booking_Mode`，將優先使用輸入資料的值。',
+					},
+				]
+			}
 		],
 	};
 
@@ -142,8 +165,29 @@ export class Neo4jCreateService implements INodeType {
 					const duration_minutes = this.getNodeParameter('duration_minutes', i, 30) as number;
 					const description = this.getNodeParameter('description', i, '') as string;
 					const price = this.getNodeParameter('price', i, undefined) as number | undefined; // Handle optional price
-					// REMOVED categoryId retrieval
-					// REMOVED is_system retrieval
+
+					// Determine the booking_mode to use (Input > UI Fallback)
+					let bookingModeToUse: string | undefined;
+					const itemData = items[i].json as IDataObject;
+					const queryData = itemData.query as IDataObject | undefined;
+					const bookingModeFromInput = queryData?.Booking_Mode as string | undefined;
+					const validBookingModes = ['TimeOnly', 'StaffOnly', 'ResourceOnly', 'StaffAndResource'];
+
+					context.logger.debug(`Input query data for service creation: ${JSON.stringify(queryData)}`);
+					context.logger.debug(`Read booking_mode from input query.Booking_Mode: ${bookingModeFromInput}`);
+
+					if (bookingModeFromInput && validBookingModes.includes(bookingModeFromInput)) {
+						bookingModeToUse = bookingModeFromInput;
+						context.logger.debug(`Using booking_mode from input query: ${bookingModeToUse}`);
+					} else {
+						// Use dot notation for collection parameter
+						bookingModeToUse = this.getNodeParameter('options.bookingModeUISetting', i, 'TimeOnly') as string;
+						context.logger.debug(`Input query.Booking_Mode invalid or missing. Falling back to UI parameter 'options.bookingModeUISetting': ${bookingModeToUse}`);
+						// Re-validate the fallback value (should always be valid due to 'options' type, but good practice)
+						if (!validBookingModes.includes(bookingModeToUse)) {
+							throw new NodeOperationError(node, `Invalid fallback booking mode from UI setting: ${bookingModeToUse}`, { itemIndex: i });
+						}
+					}
 
 					// 6. Define Specific Cypher Query & Parameters
 					// Base query parts
@@ -155,7 +199,7 @@ export class Neo4jCreateService implements INodeType {
 							duration_minutes: $duration_minutes,
 							description: $description,
 							price: $price,
-							// REMOVED is_system property
+							booking_mode: $bookingModeParam, // Use distinct param name
 							created_at: datetime()
 						})
 					`;
@@ -170,10 +214,8 @@ export class Neo4jCreateService implements INodeType {
 						description,
 						// Handle optional price, ensuring it's an integer if provided
 						price: (price !== undefined) ? neo4j.int(price) : null,
-						// REMOVED is_system parameter
+						bookingModeParam: bookingModeToUse, // Pass the final determined mode
 					};
-
-					// REMOVED Handle optional category block
 
 					// Combine query parts
 					const query = [

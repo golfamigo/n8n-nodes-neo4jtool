@@ -33,7 +33,7 @@ export class Neo4jCreateBooking implements INodeType {
 		icon: 'file:../neo4j/neo4j.svg',
 		group: ['transform'],
 		version: 1,
-		description: 'Creates a new booking record in Neo4j after checking availability based on business booking mode',
+		description: 'Creates a new booking record in Neo4j after checking availability based on the service\'s booking mode', // Updated description
 		defaults: {
 			name: 'Neo4j Create Booking',
 		},
@@ -85,14 +85,14 @@ export class Neo4jCreateBooking implements INodeType {
 				name: 'staffId',
 				type: 'string',
 				default: '',
-				description: 'The unique ID of the staff member assigned (UUID). Required if business booking mode is StaffOnly or StaffAndResource.',
+				description: 'The unique ID of the staff member assigned (UUID). Required if the service\'s booking mode is StaffOnly or StaffAndResource.', // Updated description
 			},
 			{
 				displayName: 'Resource Type ID (Optional)',
 				name: 'resourceTypeId',
 				type: 'string',
 				default: '',
-				description: 'The unique ID of the resource type required (UUID). Required if business booking mode is ResourceOnly or StaffAndResource.',
+				description: 'The unique ID of the resource type required (UUID). Required if the service\'s booking mode is ResourceOnly or StaffAndResource.', // Updated description
 			},
 			{
 				displayName: 'Resource Quantity (Optional)',
@@ -178,21 +178,23 @@ export class Neo4jCreateBooking implements INodeType {
 						throw new NodeOperationError(this.getNode(), `Invalid booking time format: ${bookingTimeInput}. Please use ISO 8601 format.`, { itemIndex });
 					}
 
-					// 1. Get Business Booking Mode
-					const modeQuery = 'MATCH (b:Business {business_id: $businessId}) RETURN b.booking_mode AS bookingMode';
-					const modeParams = { businessId };
-					const modeResult = await runCypherQuery.call(this, session, modeQuery, modeParams, false, itemIndex);
+					// 1. Get Service Booking Mode (Replaces getting business booking mode)
+					const serviceModeQuery = 'MATCH (s:Service {service_id: $serviceId}) RETURN s.booking_mode AS bookingMode';
+					const serviceModeParams = { serviceId };
+					const serviceModeResult = await runCypherQuery.call(this, session, serviceModeQuery, serviceModeParams, false, itemIndex);
 
-					if (modeResult.length === 0) {
-						throw new NodeOperationError(this.getNode(), `Business not found with ID: ${businessId}`, { itemIndex });
+					if (serviceModeResult.length === 0) {
+						throw new NodeOperationError(this.getNode(), `Service not found with ID: ${serviceId}`, { itemIndex });
 					}
-					const bookingMode = modeResult[0].json.bookingMode as string;
+					const bookingMode = serviceModeResult[0].json.bookingMode as string; // Use service's booking mode
 					if (!bookingMode) {
-						throw new NodeOperationError(this.getNode(), `Booking mode not set for business ID: ${businessId}`, { itemIndex });
+						// This case should ideally not happen if bookingMode is required on Service creation
+						throw new NodeOperationError(this.getNode(), `Booking mode not set for service ID: ${serviceId}`, { itemIndex });
 					}
-					this.logger.debug(`[Create Booking] Business ${businessId} booking mode: ${bookingMode}`);
+					this.logger.debug(`[Create Booking] Service ${serviceId} booking mode: ${bookingMode}`);
 
-					// 2. Perform Availability Check based on Booking Mode
+
+					// 2. Perform Availability Check based on Service's Booking Mode
 					this.logger.debug(`[Create Booking] Performing availability check for mode: ${bookingMode}`);
 					switch (bookingMode) {
 						case 'TimeOnly':
@@ -200,18 +202,18 @@ export class Neo4jCreateBooking implements INodeType {
 							await checkTimeOnlyAvailability(session, timeParams, this);
 							break;
 						case 'ResourceOnly':
-							if (!resourceTypeId) throw new NodeOperationError(this.getNode(), 'Resource Type ID is required for ResourceOnly booking mode.', { itemIndex });
-							const resourceParams: ResourceOnlyCheckParams = { businessId, serviceId, resourceTypeId, resourceQuantity, bookingTime, itemIndex, node: this };
+							if (!resourceTypeId) throw new NodeOperationError(this.getNode(), 'Resource Type ID is required for ResourceOnly service booking mode.', { itemIndex }); // Updated error message
+							const resourceParams: ResourceOnlyCheckParams = { businessId, serviceId, resourceTypeId, resourceQuantity, bookingTime, itemIndex, node: this, customerId }; // Added customerId
 							await checkResourceOnlyAvailability(session, resourceParams, this);
 							break;
 						case 'StaffOnly':
-							if (!staffId) throw new NodeOperationError(this.getNode(), 'Staff ID is required for StaffOnly booking mode.', { itemIndex });
+							if (!staffId) throw new NodeOperationError(this.getNode(), 'Staff ID is required for StaffOnly service booking mode.', { itemIndex }); // Updated error message
 							const staffParams: StaffOnlyCheckParams = { businessId, serviceId, staffId, bookingTime, itemIndex, node: this, customerId };
 							await checkStaffOnlyAvailability(session, staffParams, this);
 							break;
 						case 'StaffAndResource':
-							if (!staffId) throw new NodeOperationError(this.getNode(), 'Staff ID is required for StaffAndResource booking mode.', { itemIndex });
-							if (!resourceTypeId) throw new NodeOperationError(this.getNode(), 'Resource Type ID is required for StaffAndResource booking mode.', { itemIndex });
+							if (!staffId) throw new NodeOperationError(this.getNode(), 'Staff ID is required for StaffAndResource service booking mode.', { itemIndex }); // Updated error message
+							if (!resourceTypeId) throw new NodeOperationError(this.getNode(), 'Resource Type ID is required for StaffAndResource service booking mode.', { itemIndex }); // Updated error message
 							const staffResourceParams: StaffAndResourceCheckParams = { businessId, serviceId, staffId, resourceTypeId, resourceQuantity, bookingTime, itemIndex, node: this, customerId };
 							await checkStaffAndResourceAvailability(session, staffResourceParams, this);
 							break;
@@ -228,13 +230,13 @@ export class Neo4jCreateBooking implements INodeType {
 						bookingTime, // Use normalized time
 						status: 'Confirmed',
 						notes,
-						// Optional params based on mode (will be used in MERGE/CREATE clauses)
+						// Optional params based on service's booking mode
 						staffId: (bookingMode === 'StaffOnly' || bookingMode === 'StaffAndResource') ? staffId : null,
 						resourceTypeId: (bookingMode === 'ResourceOnly' || bookingMode === 'StaffAndResource') ? resourceTypeId : null,
 						resourceQuantity: (bookingMode === 'ResourceOnly' || bookingMode === 'StaffAndResource') ? neo4j.int(resourceQuantity) : null,
 					};
 
-					// Simplified Create Query - relies on prior checks for validity
+					// Create Query - adjusted optional relationship logic
 					const createQuery = `
 						// Find existing nodes
 						MATCH (c:Customer {customer_id: $customerId})
@@ -258,20 +260,20 @@ export class Neo4jCreateBooking implements INodeType {
 						MERGE (bk)-[:AT_BUSINESS]->(b)
 						MERGE (bk)-[:FOR_SERVICE]->(s)
 
-						// Create optional relationships based on parameters
+						// Create optional relationships based on service's booking mode
 						WITH bk, c, b, s // Pass bk along
 						${(bookingMode === 'StaffOnly' || bookingMode === 'StaffAndResource') ? `
-						OPTIONAL MATCH (st:Staff {staff_id: $staffId})
-						WHERE st IS NOT NULL
+						OPTIONAL MATCH (st:Staff {staff_id: $staffId}) // staffId is validated earlier based on mode
+						// WHERE st IS NOT NULL // Removed redundant check, should exist if required by mode
 						MERGE (bk)-[:SERVED_BY]->(st)
 						` : ''}
 						WITH bk, c, b, s // Pass bk along
 						${(bookingMode === 'ResourceOnly' || bookingMode === 'StaffAndResource') ? `
-						OPTIONAL MATCH (rt:ResourceType {type_id: $resourceTypeId})
-						WHERE rt IS NOT NULL AND $resourceQuantity IS NOT NULL
+						OPTIONAL MATCH (rt:ResourceType {type_id: $resourceTypeId}) // resourceTypeId is validated earlier
+						// WHERE rt IS NOT NULL AND $resourceQuantity IS NOT NULL // Removed redundant checks
 						CREATE (ru:ResourceUsage {
 							usage_id: apoc.create.uuid(),
-							booking_id: bk.booking_id, // Use the generated booking_id from bk
+							booking_id: bk.booking_id,
 							resource_type_id: $resourceTypeId,
 							quantity: $resourceQuantity
 						})

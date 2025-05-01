@@ -29,7 +29,7 @@ export class Neo4jCreateBusiness implements INodeType {
 		group: ['database'],
 		version: 1,
 		subtitle: '={{$parameter["name"]}}', // Show business name in subtitle
-		description: '創建一個新的商家記錄並關聯所有者, Booking Mode只能設定為ResourceOnly, StaffOnly, StaffAndResource, TimeOnly 這4種模式，請依照商家的型態設定。,ownerUserId: 關聯的 User 節點的內部 ID (UUID) (不是 external_id),name: 商家名稱,type: 商家類型 (例如 Salon, Clinic),address: 商家地址,phone: 商家聯繫電話,email: 商家聯繫電子郵件,description: 商家描述,booking_mode: 商家的預約檢查模式，Booking Mode只能設定為ResourceOnly, StaffOnly, StaffAndResource, TimeOnly 這4種模式，請依照商家的型態設定。', // From TaskInstructions.md
+		description: '創建一個新的商家記錄並關聯所有者。,ownerUserId: 關聯的 User 節點的內部 ID (UUID) (不是 external_id),name: 商家名稱,type: 商家類型 (例如 Salon, Clinic),address: 商家地址,phone: 商家聯繫電話,email: 商家聯繫電子郵件,description: 商家描述。', // Removed booking_mode description
 		defaults: {
 			name: 'Neo4j Create Business',
 		},
@@ -106,41 +106,7 @@ export class Neo4jCreateBusiness implements INodeType {
 				default: '',
 				description: '商家描述',
 			},
-			{
-				displayName: 'Options',
-				name: 'options',
-				type: 'collection',
-				required: true,
-				placeholder: 'Add option',
-				default: {},
-				options: [
-					{
-						displayName: 'Booking Mode (UI Setting)', // Clarify this is the UI setting
-						name: 'booking_mode',
-						type: 'options', // Changed from multiOptions to options for single selection
-						options: [
-							{
-								name: 'Resource Only',
-								value: 'ResourceOnly',
-							},
-							{
-								name: 'Staff Only',
-								value: 'StaffOnly',
-							},
-							{
-								name: 'Staff And Resource',
-								value: 'StaffAndResource',
-							},
-							{
-								name: 'Time Only',
-								value: 'TimeOnly',
-							},
-						],
-						default: 'TimeOnly', // Set a reasonable default, or '' if required must be true elsewhere
-						description: '商家的預約檢查模式 (UI 設定)。如果輸入資料中包含 `query.Booking_Mode`，將優先使用輸入資料的值。',
-					},
-				],
-			}
+			// Removed booking_mode parameter from properties
 		],
 	};
 
@@ -151,7 +117,7 @@ export class Neo4jCreateBusiness implements INodeType {
 		let driver: Driver | undefined;
 		let session: Session | undefined;
 		const node = this.getNode();
-		const validBookingModes = ['ResourceOnly', 'StaffOnly', 'StaffAndResource', 'TimeOnly']; // Define valid modes
+		// Removed validBookingModes definition
 
 		try {
 			// 1. Get Credentials
@@ -191,44 +157,14 @@ export class Neo4jCreateBusiness implements INodeType {
 					const email = this.getNodeParameter('email', i, '') as string;
 					const description = this.getNodeParameter('description', i, '') as string;
 
-					// Determine the booking_mode to use: Prioritize input, fallback to UI parameter
-					let booking_mode_to_use: string | undefined;
-					const itemData = items[i].json as IDataObject;
-					const queryData = itemData.query as IDataObject | undefined;
-					const booking_mode_from_input = queryData?.Booking_Mode as string | undefined;
-
-					this.logger.info(`Input query data: ${JSON.stringify(queryData)}`);
-					this.logger.info(`Read booking_mode from input query.Booking_Mode: ${booking_mode_from_input}`);
-
-					if (booking_mode_from_input !== undefined && booking_mode_from_input !== null && booking_mode_from_input !== '') {
-						// Use value from input if provided and not empty
-						booking_mode_to_use = booking_mode_from_input;
-						this.logger.info(`Using booking_mode from input query: ${booking_mode_to_use}`);
-					} else {
-						// Fallback to UI parameter if input is missing or empty
-						// Use dot notation to access parameter within 'options' collection
-						booking_mode_to_use = this.getNodeParameter('options.booking_mode', i, 'TimeOnly') as string; // Use the default value defined in properties
-						this.logger.info(`Input query.Booking_Mode is missing or empty. Falling back to UI parameter 'options.booking_mode': ${booking_mode_to_use}`);
-					}
-
-					// Validate the final booking_mode value
-					if (!booking_mode_to_use || !validBookingModes.includes(booking_mode_to_use)) {
-						let errorMessage = `Invalid booking_mode determined: "${booking_mode_to_use}".`;
-						if (booking_mode_from_input !== undefined) {
-							errorMessage += ` (Received "${booking_mode_from_input}" from input query.Booking_Mode).`;
-						} else {
-							errorMessage += ` (Input query.Booking_Mode was missing/empty, fallback UI setting was "${this.getNodeParameter('options.booking_mode', i, 'TimeOnly') as string}").`;
-						}
-						errorMessage += ` Valid modes are: ${validBookingModes.join(', ')}`;
-						throw new NodeOperationError(node, errorMessage, { itemIndex: i });
-					}
+					// Removed logic for determining and validating booking_mode
 
 					// 6. Define Specific Cypher Query & Parameters
-					this.logger.info(`Creating Business with final parameters:`);
+					this.logger.info(`Creating Business with parameters:`);
 					this.logger.info(`- ownerUserId: ${ownerUserId}`);
 					this.logger.info(`- name: ${name}`);
 					this.logger.info(`- type: ${type}`);
-					this.logger.info(`- booking_mode (to be used): ${booking_mode_to_use}`); // Log the value being sent to Neo4j
+					// Removed booking_mode logging
 
 					const query = `
 					MATCH (owner:User {id: $ownerUserId})
@@ -240,7 +176,7 @@ export class Neo4jCreateBusiness implements INodeType {
 					 phone: $phone,
 					 email: $email,
 					  description: $description,
-								booking_mode: $booking_mode_param, // Use a distinct name for the Cypher parameter
+								// Removed booking_mode property
 								created_at: datetime()
 							})
 							MERGE (owner)-[:OWNS]->(b)
@@ -254,7 +190,7 @@ export class Neo4jCreateBusiness implements INodeType {
 						phone,
 						email,
 						description,
-						booking_mode_param: booking_mode_to_use, // Pass the validated value from input using the Cypher parameter name
+						// Removed booking_mode_param from parameters
 					};
 					const isWrite = true; // This is a write operation (CREATE)
 

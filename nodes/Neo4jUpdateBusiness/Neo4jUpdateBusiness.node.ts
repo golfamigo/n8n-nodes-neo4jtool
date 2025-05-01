@@ -29,7 +29,7 @@ export class Neo4jUpdateBusiness implements INodeType {
 		group: ['database'],
 		version: 1,
 		subtitle: '={{$parameter["businessId"]}}', // Show businessId in subtitle
-		description: '根據 business_id 更新商家資訊。,businessId: 要更新的商家 ID (UUID),name: 新的商家名稱 (可選),type: 新的商家類型 (可選),address: 新的商家地址 (可選),phone: 新的商家聯繫電話 (可選),email: 新的商家聯繫電子郵件 (可選),description: 新的商家描述 (可選),booking_mode: 新的商家預約檢查模式 (可選)。', // From TaskInstructions.md
+		description: '根據 business_id 更新商家資訊。,businessId: 要更新的商家 ID (UUID),name: 新的商家名稱 (可選),type: 新的商家類型 (可選),address: 新的商家地址 (可選),phone: 新的商家聯繫電話 (可選),email: 新的商家聯繫電子郵件 (可選),description: 新的商家描述 (可選)。', // Removed booking_mode description
 		defaults: {
 			name: 'Neo4j Update Business',
 		},
@@ -100,32 +100,7 @@ export class Neo4jUpdateBusiness implements INodeType {
 				default: '',
 				description: '新的商家描述 (可選)',
 			},
-			{
-			displayName: 'Booking Mode',
-			name: 'booking_mode',
-			type: 'options',
-			options: [
-			 {
-			   name: 'Resource Only',
-							value: 'ResourceOnly'
-						},
-						{
-							name: 'Staff Only',
-							value: 'StaffOnly'
-						},
-						{
-							name: 'Staff And Resource',
-							value: 'StaffAndResource'
-						},
-						{
-							name: 'Time Only',
-							value: 'TimeOnly'
-						}
-					],
-					default: 'StaffAndResource',
-					description: '新的商家預約檢查模式 (可選)',
-				},
-			// REMOVED business_hours as it's handled by separate nodes
+			// Removed booking_mode parameter
 		],
 	};
 
@@ -136,7 +111,7 @@ export class Neo4jUpdateBusiness implements INodeType {
 		let driver: Driver | undefined;
 		let session: Session | undefined;
 		const node = this.getNode();
-		const validBookingModes = ['ResourceOnly', 'StaffOnly', 'StaffAndResource', 'TimeOnly']; // Define valid modes
+		// Removed validBookingModes definition
 
 		try {
 			// 1. Get Credentials
@@ -175,13 +150,9 @@ export class Neo4jUpdateBusiness implements INodeType {
 					const phone = this.getNodeParameter('phone', i, undefined) as string | undefined;
 					const email = this.getNodeParameter('email', i, undefined) as string | undefined;
 					const description = this.getNodeParameter('description', i, undefined) as string | undefined;
-					const booking_mode = this.getNodeParameter('booking_mode', i, undefined) as string | undefined;
-this.logger.info(`Updating business with booking_mode: ${booking_mode}`);
+					// Removed booking_mode retrieval
 
-					// ADDED: Validate booking_mode if provided
-					if (booking_mode !== undefined && booking_mode !== '' && !validBookingModes.includes(booking_mode)) {
-						throw new NodeOperationError(node, `Invalid booking_mode: "${booking_mode}". Valid modes are: ${validBookingModes.join(', ')}`, { itemIndex: i });
-					}
+					// Removed booking_mode validation
 
 					// Build SET clause dynamically based on provided parameters
 					const setClauses: string[] = [];
@@ -220,11 +191,7 @@ this.logger.info(`Updating business with booking_mode: ${booking_mode}`);
 							parameters.description = description;
 							this.logger.info(`- Setting description: ${description}`);
 						}
-						if (booking_mode !== undefined && booking_mode !== '') {
-							setClauses.push('b.booking_mode = $booking_mode');
-							parameters.booking_mode = booking_mode;
-							this.logger.info(`- Setting booking_mode: ${booking_mode}`);
-						}
+						// Removed booking_mode from SET clause logic
 
 					if (setClauses.length === 0) {
 						// If no optional parameters are provided, maybe just return the existing node or throw an error?

@@ -22,15 +22,15 @@ export class Neo4jVerifyBusinessSetup implements INodeType {
 
 	// --- Node Description for n8n UI ---
 	description: INodeTypeDescription = {
-		displayName: 'Neo4j Verify Business Setup',
+		displayName: '[DEPRECATED] Neo4j Verify Business Setup', // Mark as deprecated
 		name: 'neo4jVerifyBusinessSetup',
 		icon: 'file:../neo4j/neo4j.svg',
-		group: ['database'],
+		group: ['deprecated'], // Move to deprecated group
 		version: 1,
-		subtitle: 'for Business {{$parameter["businessId"]}}',
-		description: '檢查商家是否已完成所有必要設置，能夠開始接受預約,businessId: 要檢查設置的商家 ID (UUID)',
+		subtitle: 'DEPRECATED - Use Verify Service Setup', // Update subtitle
+		description: '[DEPRECATED] This node is deprecated due to the bookingMode being moved to the Service level. Use the "Neo4j Verify Service Setup" node instead to check if a specific service is ready for booking.', // Update description
 		defaults: {
-			name: 'Neo4j Verify Business Setup',
+			name: '[DEPRECATED] Neo4j Verify Business Setup',
 		},
 		inputs: ['main'],
 		outputs: ['main'],

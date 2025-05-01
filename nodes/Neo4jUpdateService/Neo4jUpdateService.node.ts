@@ -29,7 +29,7 @@ export class Neo4jUpdateService implements INodeType {
 		group: ['database'],
 		version: 1,
 		subtitle: '={{$parameter["serviceId"]}}', // Show serviceId in subtitle
-		description: '根據 service_id 更新服務資訊。,serviceId: 要更新的服務 ID (UUID),name: 新的服務名稱 (可選),duration_minutes: 新的服務持續時間（分鐘）(可選),description: 新的服務描述 (可選),price: 新的服務價格（整數，例如分）(可選)。', // From TaskInstructions.md
+		description: '根據 service_id 更新服務資訊。,serviceId: 要更新的服務 ID (UUID),name: 新的服務名稱 (可選),duration_minutes: 新的服務持續時間（分鐘）(可選),description: 新的服務描述 (可選),price: 新的服務價格（整數，例如分）(可選),bookingMode: 新的服務預約檢查模式 (可選)。', // Added bookingMode description
 		defaults: {
 			name: 'Neo4j Update Service',
 		},
@@ -91,8 +91,30 @@ export class Neo4jUpdateService implements INodeType {
 				default: undefined, // No default for optional number
 				description: '新的服務價格（整數，例如分）(可選)',
 			},
-			// REMOVED categoryId property
-			// Removed is_system property
+			// Use collection for booking mode to allow override from input
+			{
+				displayName: 'Options',
+				name: 'options',
+				type: 'collection',
+				// required: false, // Make the entire collection optional for updates
+				placeholder: 'Add Option',
+				default: {},
+				options: [
+					{
+						displayName: 'Booking Mode (UI Setting)',
+						name: 'bookingModeUISetting', // Use a distinct name for UI setting
+						type: 'options',
+						options: [
+							{ name: 'Time Only', value: 'TimeOnly' },
+							{ name: 'Staff Only', value: 'StaffOnly' },
+							{ name: 'Resource Only', value: 'ResourceOnly' },
+							{ name: 'Staff And Resource', value: 'StaffAndResource' },
+						],
+						default: 'TimeOnly', // Keep default empty for optional UI setting
+						description: '新的服務預約檢查模式 (UI 設定，可選)。如果輸入資料中包含 `query.Booking_Mode`，將優先使用輸入資料的值。',
+					},
+				]
+			}
 		],
 	};
 
@@ -142,8 +164,30 @@ export class Neo4jUpdateService implements INodeType {
 					const duration_minutes = this.getNodeParameter('duration_minutes', i, undefined) as number | undefined;
 					const description = this.getNodeParameter('description', i, '') as string;
 					const price = this.getNodeParameter('price', i, undefined) as number | undefined;
-					// REMOVED categoryId retrieval
-					// Removed is_system parameter reading
+
+					// Determine the booking_mode to use (Input > UI Fallback)
+					let bookingModeToUse: string | undefined;
+					const itemData = items[i].json as IDataObject;
+					const queryData = itemData.query as IDataObject | undefined;
+					const bookingModeFromInput = queryData?.Booking_Mode as string | undefined;
+					const validBookingModes = ['TimeOnly', 'StaffOnly', 'ResourceOnly', 'StaffAndResource'];
+
+					context.logger.debug(`Input query data for service update: ${JSON.stringify(queryData)}`);
+					context.logger.debug(`Read booking_mode from input query.Booking_Mode: ${bookingModeFromInput}`);
+
+					if (bookingModeFromInput && validBookingModes.includes(bookingModeFromInput)) {
+						bookingModeToUse = bookingModeFromInput;
+						context.logger.debug(`Using booking_mode from input query: ${bookingModeToUse}`);
+					} else {
+						// Use dot notation for collection parameter
+						bookingModeToUse = this.getNodeParameter('options.bookingModeUISetting', i, '') as string; // Default is empty for optional update
+						context.logger.debug(`Input query.Booking_Mode invalid or missing. Falling back to UI parameter 'options.bookingModeUISetting': ${bookingModeToUse}`);
+						// Validate the fallback value only if it's not empty
+						if (bookingModeToUse !== '' && !validBookingModes.includes(bookingModeToUse)) {
+							throw new NodeOperationError(node, `Invalid fallback booking mode from UI setting: ${bookingModeToUse}`, { itemIndex: i });
+						}
+					}
+
 
 					// Build SET clause dynamically
 					const setClauses: string[] = [];
@@ -153,7 +197,8 @@ export class Neo4jUpdateService implements INodeType {
 					if (duration_minutes !== undefined && duration_minutes !== null) { setClauses.push('s.duration_minutes = $duration_minutes'); parameters.duration_minutes = neo4j.int(duration_minutes); }
 					if (description !== undefined && description !== '') { setClauses.push('s.description = $description'); parameters.description = description; }
 					if (price !== undefined && price !== null) { setClauses.push('s.price = $price'); parameters.price = neo4j.int(price); }
-					// Removed is_system handling
+					// Use the determined bookingModeToUse
+					if (bookingModeToUse !== undefined && bookingModeToUse !== '') { setClauses.push('s.booking_mode = $bookingModeParam'); parameters.bookingModeParam = bookingModeToUse; }
 
 					// Start building the query
 					let query = `MATCH (s:Service {service_id: $serviceId})\n`;
