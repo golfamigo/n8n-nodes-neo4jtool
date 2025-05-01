@@ -28,8 +28,8 @@ export class Neo4jCreateService implements INodeType {
 		icon: 'file:../neo4j/neo4j.svg',
 		group: ['database'],
 		version: 1,
-		subtitle: '={{$parameter["name"]}} for {{$parameter["businessId"]}}',
-		description: '為指定商家創建一個新的服務項目。businessId: 提供此服務的商家 ID (UUID),name: 服務名稱,duration_minutes: 服務持續時間（分鐘）,description: 服務描述,price: 服務價格（整數，例如分）(可選),bookingMode: 該服務的預約檢查模式。',
+		subtitle: '={{$parameter["operation"] === "create" ? "Create Service: " + $parameter["name"] : "Other Operation"}}',
+		description: '對指定商家的服務進行操作。businessId: 提供此服務的商家 ID (UUID),name: 服務名稱,duration_minutes: 服務持續時間（分鐘）,description: 服務描述,price: 服務價格（整數，例如分）(可選),bookingMode: 該服務的預約檢查模式。',
 		defaults: {
 			name: 'Neo4j Create Service',
 		},
@@ -47,22 +47,51 @@ export class Neo4jCreateService implements INodeType {
 
 		// --- Node Specific Input Properties ---
 		properties: [
+			// Operation Parameter (similar to Airtable)
+			{
+				displayName: 'Operation',
+				name: 'operation',
+				type: 'options',
+				options: [
+					{
+						name: 'Create',
+						value: 'create',
+						description: 'Create a new service',
+						action: 'Create a service',
+					},
+				],
+				default: 'create',
+				noDataExpression: true,
+			},
+			// Business ID
 			{
 				displayName: 'Business ID',
 				name: 'businessId',
 				type: 'string',
 				required: true,
 				default: '',
+				displayOptions: {
+					show: {
+						operation: ['create'],
+					},
+				},
 				description: '提供此服務的商家 ID',
 			},
+			// Name
 			{
 				displayName: 'Name',
 				name: 'name',
 				type: 'string',
 				required: true,
 				default: '',
+				displayOptions: {
+					show: {
+						operation: ['create'],
+					},
+				},
 				description: '服務名稱',
 			},
+			// Duration (Minutes)
 			{
 				displayName: 'Duration (Minutes)',
 				name: 'duration_minutes',
@@ -72,16 +101,28 @@ export class Neo4jCreateService implements INodeType {
 				},
 				required: true,
 				default: 30,
+				displayOptions: {
+					show: {
+						operation: ['create'],
+					},
+				},
 				description: '服務持續時間（分鐘）',
 			},
+			// Description
 			{
 				displayName: 'Description',
 				name: 'description',
 				type: 'string',
 				required: true,
 				default: '',
+				displayOptions: {
+					show: {
+						operation: ['create'],
+					},
+				},
 				description: '服務描述',
 			},
+			// Price (Integer)
 			{
 				displayName: 'Price (Integer)',
 				name: 'price',
@@ -90,8 +131,14 @@ export class Neo4jCreateService implements INodeType {
 					numberStep: 1,
 				},
 				default: 0,
+				displayOptions: {
+					show: {
+						operation: ['create'],
+					},
+				},
 				description: '服務價格（整數，例如分）(可選)',
 			},
+			// Options (Booking Mode)
 			{
 				displayName: 'Options',
 				name: 'options',
@@ -99,6 +146,11 @@ export class Neo4jCreateService implements INodeType {
 				required: true,
 				placeholder: 'Add option',
 				default: {},
+				displayOptions: {
+					show: {
+						operation: ['create'],
+					},
+				},
 				options: [
 					{
 						displayName: 'Booking Mode (UI Setting)',
@@ -156,81 +208,88 @@ export class Neo4jCreateService implements INodeType {
 			// 4. Loop Through Input Items
 			for (let i = 0; i < items.length; i++) {
 				try {
-					// 5. Get Input Parameters
-					const businessId = this.getNodeParameter('businessId', i, '') as string;
-					const name = this.getNodeParameter('name', i, '') as string;
-					const duration_minutes = this.getNodeParameter('duration_minutes', i, 30) as number;
-					const description = this.getNodeParameter('description', i, '') as string;
-					const price = this.getNodeParameter('price', i, undefined) as number | undefined;
+					// 5. Get Operation
+					const operation = this.getNodeParameter('operation', i) as string;
 
-					// Determine the booking_mode to use: Prioritize input, fallback to UI parameter
-					let bookingModeToUse: string | undefined;
-					const itemData = items[i].json as IDataObject;
-					const queryData = itemData.query as IDataObject | undefined;
-					const bookingModeFromInput = queryData?.Booking_Mode as string | undefined;
+					if (operation === 'create') {
+						// 5. Get Input Parameters for Create Operation
+						const businessId = this.getNodeParameter('businessId', i, '') as string;
+						const name = this.getNodeParameter('name', i, '') as string;
+						const duration_minutes = this.getNodeParameter('duration_minutes', i, 30) as number;
+						const description = this.getNodeParameter('description', i, '') as string;
+						const price = this.getNodeParameter('price', i, undefined) as number | undefined;
+						// Get the UI parameter for booking_mode
+						const bookingModeFromUI = this.getNodeParameter('options.booking_mode', i, 'TimeOnly') as string;
 
-					this.logger.info(`Input query data: ${JSON.stringify(queryData)}`);
-					this.logger.info(`Read booking_mode from input query.Booking_Mode: ${bookingModeFromInput}`);
+						// Determine the booking_mode to use: Prioritize input, fallback to UI parameter
+						let bookingModeToUse: string | undefined;
+						const itemData = items[i].json as IDataObject;
+						const queryData = itemData.query as IDataObject | undefined;
+						const bookingModeFromInput = queryData?.Booking_Mode as string | undefined;
 
-					if (bookingModeFromInput !== undefined && bookingModeFromInput !== null && bookingModeFromInput !== '') {
-						bookingModeToUse = bookingModeFromInput;
-						this.logger.info(`Using booking_mode from input query: ${bookingModeToUse}`);
-					} else {
-						bookingModeToUse = this.getNodeParameter('options.booking_mode', i, 'TimeOnly') as string;
-						this.logger.info(`Input query.Booking_Mode is missing or empty. Falling back to UI parameter 'options.booking_mode': ${bookingModeToUse}`);
-					}
+						this.logger.info(`Input query data: ${JSON.stringify(queryData)}`);
+						this.logger.info(`Read booking_mode from input query.Booking_Mode: ${bookingModeFromInput}`);
 
-					// Validate the final booking_mode value
-					if (!bookingModeToUse || !validBookingModes.includes(bookingModeToUse)) {
-						let errorMessage = `Invalid booking_mode determined: "${bookingModeToUse}".`;
-						if (bookingModeFromInput !== undefined) {
-							errorMessage += ` (Received "${bookingModeFromInput}" from input query.Booking_Mode).`;
+						if (bookingModeFromInput !== undefined && bookingModeFromInput !== null && bookingModeFromInput !== '') {
+							bookingModeToUse = bookingModeFromInput;
+							this.logger.info(`Using booking_mode from input query: ${bookingModeToUse}`);
 						} else {
-							errorMessage += ` (Input query.Booking_Mode was missing/empty, fallback UI setting was "${this.getNodeParameter('options.booking_mode', i, 'TimeOnly') as string}").`;
+							bookingModeToUse = bookingModeFromUI;
+							this.logger.info(`Input query.Booking_Mode is missing or empty. Falling back to UI parameter 'options.booking_mode': ${bookingModeToUse}`);
 						}
-						errorMessage += ` Valid modes are: ${validBookingModes.join(', ')}`;
-						throw new NodeOperationError(node, errorMessage, { itemIndex: i });
+
+						// Validate the final booking_mode value
+						if (!bookingModeToUse || !validBookingModes.includes(bookingModeToUse)) {
+							let errorMessage = `Invalid booking_mode determined: "${bookingModeToUse}".`;
+							if (bookingModeFromInput !== undefined) {
+								errorMessage += ` (Received "${bookingModeFromInput}" from input query.Booking_Mode).`;
+							} else {
+								errorMessage += ` (Input query.Booking_Mode was missing/empty, fallback UI setting was "${bookingModeFromUI}").`;
+							}
+							errorMessage += ` Valid modes are: ${validBookingModes.join(', ')}`;
+							throw new NodeOperationError(node, errorMessage, { itemIndex: i });
+						}
+
+						// 6. Define Specific Cypher Query & Parameters
+						this.logger.info(`Creating Service with parameters:`);
+						this.logger.info(`- businessId: ${businessId}`);
+						this.logger.info(`- name: ${name}`);
+						this.logger.info(`- duration_minutes: ${duration_minutes}`);
+						this.logger.info(`- description: ${description}`);
+						this.logger.info(`- price: ${price}`);
+						this.logger.info(`- booking_mode (to be used): ${bookingModeToUse}`);
+
+						const query = `
+							MATCH (b:Business {business_id: $businessId})
+							CREATE (s:Service {
+								service_id: randomUUID(),
+								name: $name,
+								duration_minutes: $duration_minutes,
+								description: $description,
+								price: $price,
+								booking_mode: $booking_mode_param,
+								created_at: datetime()
+							})
+							MERGE (b)-[:OFFERS]->(s)
+							RETURN s {.*} AS service
+						`;
+						const parameters: IDataObject = {
+							businessId,
+							name,
+							duration_minutes: neo4j.int(duration_minutes),
+							description,
+							price: (price !== undefined) ? neo4j.int(price) : null,
+							booking_mode_param: bookingModeToUse,
+						};
+						const isWrite = true;
+
+						// 7. Execute Query
+						if (!session) {
+							throw new NodeOperationError(node, 'Neo4j session is not available.', { itemIndex: i });
+						}
+						const results = await runCypherQuery.call(this, session, query, parameters, isWrite, i);
+						returnData.push(...results);
 					}
-
-					// 6. Define Specific Cypher Query & Parameters
-					this.logger.info(`Creating Service with parameters:`);
-					this.logger.info(`- businessId: ${businessId}`);
-					this.logger.info(`- name: ${name}`);
-					this.logger.info(`- duration_minutes: ${duration_minutes}`);
-					this.logger.info(`- description: ${description}`);
-					this.logger.info(`- price: ${price}`);
-					this.logger.info(`- booking_mode (to be used): ${bookingModeToUse}`);
-
-					const query = `
-						MATCH (b:Business {business_id: $businessId})
-						CREATE (s:Service {
-							service_id: randomUUID(),
-							name: $name,
-							duration_minutes: $duration_minutes,
-							description: $description,
-							price: $price,
-							booking_mode: $booking_mode_param,
-							created_at: datetime()
-						})
-						MERGE (b)-[:OFFERS]->(s)
-						RETURN s {.*} AS service
-					`;
-					const parameters: IDataObject = {
-						businessId,
-						name,
-						duration_minutes: neo4j.int(duration_minutes),
-						description,
-						price: (price !== undefined) ? neo4j.int(price) : null,
-						booking_mode_param: bookingModeToUse,
-					};
-					const isWrite = true;
-
-					// 7. Execute Query
-					if (!session) {
-						throw new NodeOperationError(node, 'Neo4j session is not available.', { itemIndex: i });
-					}
-					const results = await runCypherQuery.call(this, session, query, parameters, isWrite, i);
-					returnData.push(...results);
 
 				} catch (itemError) {
 					// 8. Handle Item-Level Errors
