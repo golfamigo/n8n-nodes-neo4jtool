@@ -98,11 +98,6 @@ export class Neo4jUpdateService implements INodeType {
 				type: 'collection',
 				placeholder: 'Add option',
 				default: {},
-				displayOptions: {
-					show: {
-						operation: ['create'],
-					},
-				},
 				options: [
 					{
 						displayName: 'Booking Mode (UI Setting)',

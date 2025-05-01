@@ -147,11 +147,6 @@ export class Neo4jCreateService implements INodeType {
 				required: true,
 				placeholder: 'Add option',
 				default: {},
-				displayOptions: {
-					show: {
-						operation: ['create'],
-					},
-				},
 				options: [
 					{
 						displayName: 'Booking Mode (UI Setting)',
