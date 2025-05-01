@@ -173,16 +173,16 @@ export class Neo4jCreateService implements INodeType {
 					const bookingModeFromInput = queryData?.Booking_Mode as string | undefined;
 					const validBookingModes = ['TimeOnly', 'StaffOnly', 'ResourceOnly', 'StaffAndResource'];
 
-					context.logger.debug(`Input query data for service creation: ${JSON.stringify(queryData)}`);
-					context.logger.debug(`Read booking_mode from input query.Booking_Mode: ${bookingModeFromInput}`);
+					this.logger.debug(`Input query data for service creation: ${JSON.stringify(queryData)}`);
+					this.logger.debug(`Read booking_mode from input query.Booking_Mode: ${bookingModeFromInput}`);
 
 					if (bookingModeFromInput && validBookingModes.includes(bookingModeFromInput)) {
 						bookingModeToUse = bookingModeFromInput;
-						context.logger.debug(`Using booking_mode from input query: ${bookingModeToUse}`);
+						this.logger.debug(`Using booking_mode from input query: ${bookingModeToUse}`);
 					} else {
 						// Use dot notation for collection parameter
 						bookingModeToUse = this.getNodeParameter('options.bookingModeUISetting', i, 'TimeOnly') as string;
-						context.logger.debug(`Input query.Booking_Mode invalid or missing. Falling back to UI parameter 'options.bookingModeUISetting': ${bookingModeToUse}`);
+						this.logger.debug(`Input query.Booking_Mode invalid or missing. Falling back to UI parameter 'options.bookingModeUISetting': ${bookingModeToUse}`);
 						// Re-validate the fallback value (should always be valid due to 'options' type, but good practice)
 						if (!validBookingModes.includes(bookingModeToUse)) {
 							throw new NodeOperationError(node, `Invalid fallback booking mode from UI setting: ${bookingModeToUse}`, { itemIndex: i });
