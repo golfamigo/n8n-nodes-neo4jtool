@@ -100,6 +100,7 @@ export class Neo4jCreateService implements INodeType {
 				displayName: 'Options',
 				name: 'options',
 				type: 'collection',
+				required: true,
 				placeholder: 'Add Option',
 				default: {},
 				options: [
@@ -173,16 +174,16 @@ export class Neo4jCreateService implements INodeType {
 					const bookingModeFromInput = queryData?.Booking_Mode as string | undefined;
 					const validBookingModes = ['TimeOnly', 'StaffOnly', 'ResourceOnly', 'StaffAndResource'];
 
-					context.logger.debug(`Input query data for service creation: ${JSON.stringify(queryData)}`);
-					context.logger.debug(`Read booking_mode from input query.Booking_Mode: ${bookingModeFromInput}`);
+					this.logger.debug(`Input query data for service creation: ${JSON.stringify(queryData)}`); // Use this.logger
+					this.logger.debug(`Read booking_mode from input query.Booking_Mode: ${bookingModeFromInput}`); // Use this.logger
 
 					if (bookingModeFromInput && validBookingModes.includes(bookingModeFromInput)) {
 						bookingModeToUse = bookingModeFromInput;
-						context.logger.debug(`Using booking_mode from input query: ${bookingModeToUse}`);
+						this.logger.debug(`Using booking_mode from input query: ${bookingModeToUse}`); // Use this.logger
 					} else {
 						// Use dot notation for collection parameter
 						bookingModeToUse = this.getNodeParameter('options.bookingModeUISetting', i, 'TimeOnly') as string;
-						context.logger.debug(`Input query.Booking_Mode invalid or missing. Falling back to UI parameter 'options.bookingModeUISetting': ${bookingModeToUse}`);
+						this.logger.debug(`Input query.Booking_Mode invalid or missing. Falling back to UI parameter 'options.bookingModeUISetting': ${bookingModeToUse}`); // Use this.logger
 						// Re-validate the fallback value (should always be valid due to 'options' type, but good practice)
 						if (!validBookingModes.includes(bookingModeToUse)) {
 							throw new NodeOperationError(node, `Invalid fallback booking mode from UI setting: ${bookingModeToUse}`, { itemIndex: i });

@@ -172,16 +172,16 @@ export class Neo4jUpdateService implements INodeType {
 					const bookingModeFromInput = queryData?.Booking_Mode as string | undefined;
 					const validBookingModes = ['TimeOnly', 'StaffOnly', 'ResourceOnly', 'StaffAndResource'];
 
-					context.logger.debug(`Input query data for service update: ${JSON.stringify(queryData)}`);
-					context.logger.debug(`Read booking_mode from input query.Booking_Mode: ${bookingModeFromInput}`);
+					this.logger.debug(`Input query data for service update: ${JSON.stringify(queryData)}`); // Use this.logger
+					this.logger.debug(`Read booking_mode from input query.Booking_Mode: ${bookingModeFromInput}`); // Use this.logger
 
 					if (bookingModeFromInput && validBookingModes.includes(bookingModeFromInput)) {
 						bookingModeToUse = bookingModeFromInput;
-						context.logger.debug(`Using booking_mode from input query: ${bookingModeToUse}`);
+						this.logger.debug(`Using booking_mode from input query: ${bookingModeToUse}`); // Use this.logger
 					} else {
 						// Use dot notation for collection parameter
 						bookingModeToUse = this.getNodeParameter('options.bookingModeUISetting', i, '') as string; // Default is empty for optional update
-						context.logger.debug(`Input query.Booking_Mode invalid or missing. Falling back to UI parameter 'options.bookingModeUISetting': ${bookingModeToUse}`);
+						this.logger.debug(`Input query.Booking_Mode invalid or missing. Falling back to UI parameter 'options.bookingModeUISetting': ${bookingModeToUse}`); // Use this.logger
 						// Validate the fallback value only if it's not empty
 						if (bookingModeToUse !== '' && !validBookingModes.includes(bookingModeToUse)) {
 							throw new NodeOperationError(node, `Invalid fallback booking mode from UI setting: ${bookingModeToUse}`, { itemIndex: i });
