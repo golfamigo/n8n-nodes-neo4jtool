@@ -164,7 +164,7 @@ export class Neo4jCreateService implements INodeType {
 							{ name: 'Staff And Resource', value: 'StaffAndResource' },
 						],
 						default: 'TimeOnly',
-						description: '服務的預約檢查模式 (UI 設定)。如果輸入資料中包含 `query.Booking_Mode`，將優先使用輸入資料的值。',
+						description: '服務的預約檢查模式 (UI 設定)。',
 					},
 				],
 			},
@@ -219,35 +219,11 @@ export class Neo4jCreateService implements INodeType {
 						const duration_minutes = this.getNodeParameter('duration_minutes', i, 30) as number;
 						const description = this.getNodeParameter('description', i, '') as string;
 						const price = this.getNodeParameter('price', i, undefined) as number | undefined;
-						// Get the UI parameter for booking_mode
-						const bookingModeFromUI = this.getNodeParameter('options.booking_mode', i, 'TimeOnly') as string;
+						const bookingMode = this.getNodeParameter('options.booking_mode', i, 'TimeOnly') as string;
 
-						// Determine the booking_mode to use: Prioritize input, fallback to UI parameter
-						let bookingModeToUse: string | undefined;
-						const itemData = items[i].json as IDataObject;
-						const queryData = itemData.query as IDataObject | undefined;
-						const bookingModeFromInput = queryData?.Booking_Mode as string | undefined;
-
-						this.logger.info(`Input query data: ${JSON.stringify(queryData)}`);
-						this.logger.info(`Read booking_mode from input query.Booking_Mode: ${bookingModeFromInput}`);
-
-						if (bookingModeFromInput !== undefined && bookingModeFromInput !== null && bookingModeFromInput !== '') {
-							bookingModeToUse = bookingModeFromInput;
-							this.logger.info(`Using booking_mode from input query: ${bookingModeToUse}`);
-						} else {
-							bookingModeToUse = bookingModeFromUI;
-							this.logger.info(`Input query.Booking_Mode is missing or empty. Falling back to UI parameter 'options.booking_mode': ${bookingModeToUse}`);
-						}
-
-						// Validate the final booking_mode value
-						if (!bookingModeToUse || !validBookingModes.includes(bookingModeToUse)) {
-							let errorMessage = `Invalid booking_mode determined: "${bookingModeToUse}".`;
-							if (bookingModeFromInput !== undefined) {
-								errorMessage += ` (Received "${bookingModeFromInput}" from input query.Booking_Mode).`;
-							} else {
-								errorMessage += ` (Input query.Booking_Mode was missing/empty, fallback UI setting was "${bookingModeFromUI}").`;
-							}
-							errorMessage += ` Valid modes are: ${validBookingModes.join(', ')}`;
+						// Validate the booking_mode value
+						if (!validBookingModes.includes(bookingMode)) {
+							const errorMessage = `Invalid booking_mode selected: "${bookingMode}". Valid modes are: ${validBookingModes.join(', ')}`;
 							throw new NodeOperationError(node, errorMessage, { itemIndex: i });
 						}
 
@@ -258,7 +234,7 @@ export class Neo4jCreateService implements INodeType {
 						this.logger.info(`- duration_minutes: ${duration_minutes}`);
 						this.logger.info(`- description: ${description}`);
 						this.logger.info(`- price: ${price}`);
-						this.logger.info(`- booking_mode (to be used): ${bookingModeToUse}`);
+						this.logger.info(`- booking_mode: ${bookingMode}`);
 
 						const query = `
 							MATCH (b:Business {business_id: $businessId})
@@ -280,7 +256,7 @@ export class Neo4jCreateService implements INodeType {
 							duration_minutes: neo4j.int(duration_minutes),
 							description,
 							price: (price !== undefined) ? neo4j.int(price) : null,
-							booking_mode_param: bookingModeToUse,
+							booking_mode_param: bookingMode,
 						};
 						const isWrite = true;
 
