@@ -100,7 +100,7 @@ export class Neo4jCreateService implements INodeType {
 				displayName: 'Options',
 				name: 'options',
 				type: 'collection',
-				required: true,
+				required: true, // Collection itself is required
 				placeholder: 'Add Option',
 				default: {},
 				options: [
@@ -114,12 +114,21 @@ export class Neo4jCreateService implements INodeType {
 							{ name: 'Resource Only', value: 'ResourceOnly' },
 							{ name: 'Staff And Resource', value: 'StaffAndResource' },
 						],
-						// Removed required: true as it has a default value
+						// No required: true here, but has default
 						default: 'TimeOnly',
-						description: '服務的預約檢查模式 (UI 設定)。如果輸入資料中包含 `query.Booking_Mode`，將優先使用輸入資料的值。',
+						description: '服務的預約檢查模式 (UI 設定)。如果通過輸入參數 `Booking Mode Input` 提供，將優先使用輸入值', // Removed final period
 					},
 				]
-			}
+			},
+			// Parameter to receive booking mode directly from input arguments
+			{
+				displayName: 'Booking Mode Input',
+				name: 'bookingModeInput',
+				type: 'string',
+				default: '',
+				description: 'Booking mode provided via input arguments (overrides UI setting)',
+				// Removed hidden: true as it's not a valid INodeProperties property
+			},
 		],
 	};
 
@@ -167,24 +176,22 @@ export class Neo4jCreateService implements INodeType {
 					const description = this.getNodeParameter('description', i, '') as string;
 					const price = this.getNodeParameter('price', i, undefined) as number | undefined; // Handle optional price
 
-					// Determine the booking_mode to use (Input > UI Fallback)
+					// Determine the booking_mode to use (Direct Input > UI Fallback)
 					let bookingModeToUse: string | undefined;
-					const itemData = items[i].json as IDataObject;
-					const queryData = itemData.query as IDataObject | undefined;
-					const bookingModeFromInput = queryData?.Booking_Mode as string | undefined;
+					// Read directly from the 'bookingModeInput' parameter
+					const bookingModeFromInput = this.getNodeParameter('bookingModeInput', i, '') as string;
 					const validBookingModes = ['TimeOnly', 'StaffOnly', 'ResourceOnly', 'StaffAndResource'];
 
-					this.logger.debug(`Input query data for service creation: ${JSON.stringify(queryData)}`); // Use this.logger
-					this.logger.debug(`Read booking_mode from input query.Booking_Mode: ${bookingModeFromInput}`); // Use this.logger
+					this.logger.debug(`Read booking_mode from direct input 'bookingModeInput': ${bookingModeFromInput}`);
 
 					if (bookingModeFromInput && validBookingModes.includes(bookingModeFromInput)) {
 						bookingModeToUse = bookingModeFromInput;
-						this.logger.debug(`Using booking_mode from input query: ${bookingModeToUse}`); // Use this.logger
+						this.logger.debug(`Using booking_mode from direct input: ${bookingModeToUse}`);
 					} else {
 						// Use dot notation for collection parameter
 						bookingModeToUse = this.getNodeParameter('options.bookingModeUISetting', i, 'TimeOnly') as string;
-						this.logger.debug(`Input query.Booking_Mode invalid or missing. Falling back to UI parameter 'options.bookingModeUISetting': ${bookingModeToUse}`); // Use this.logger
-						// Re-validate the fallback value (should always be valid due to 'options' type, but good practice)
+						this.logger.debug(`Direct input 'bookingModeInput' invalid or missing. Falling back to UI parameter 'options.bookingModeUISetting': ${bookingModeToUse}`);
+						// Re-validate the fallback value
 						if (!validBookingModes.includes(bookingModeToUse)) {
 							throw new NodeOperationError(node, `Invalid fallback booking mode from UI setting: ${bookingModeToUse}`, { itemIndex: i });
 						}
