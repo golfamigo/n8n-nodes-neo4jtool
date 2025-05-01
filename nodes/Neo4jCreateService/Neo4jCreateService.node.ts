@@ -100,24 +100,48 @@ export class Neo4jCreateService implements INodeType {
 				displayName: 'Options',
 				name: 'options',
 				type: 'collection',
-				placeholder: 'Add Option',
+				required: true,
+				placeholder: 'Add option',
 				default: {},
 				options: [
 					{
 						displayName: 'Booking Mode (UI Setting)',
-						name: 'booking_mode', // Use a distinct name for UI setting
+						name: 'booking_mode',
 						type: 'options',
+						// 這裡添加 typeOptions 配置
+						typeOptions: {
+							// 這是關鍵配置，用於啟用 AI 按鈕
+							buttonConfig: {
+								action: {
+									type: 'askAiCodeGeneration',
+									target: 'options.booking_mode'
+								},
+								hasInputField: true,
+								label: '智能推薦模式'
+							}
+						},
 						options: [
-							{ name: 'Time Only', value: 'TimeOnly' },
-							{ name: 'Staff Only', value: 'StaffOnly' },
-							{ name: 'Resource Only', value: 'ResourceOnly' },
-							{ name: 'Staff And Resource', value: 'StaffAndResource' },
+							{
+								name: 'Resource Only',
+								value: 'ResourceOnly',
+							},
+							{
+								name: 'Staff Only',
+								value: 'StaffOnly',
+							},
+							{
+								name: 'Staff And Resource',
+								value: 'StaffAndResource',
+							},
+							{
+								name: 'Time Only',
+								value: 'TimeOnly',
+							},
 						],
-						// Removed required: true as it has a default value
 						default: 'TimeOnly',
-						description: '服務的預約檢查模式 (UI 設定)。如果輸入資料中包含 `query.Booking_Mode`，將優先使用輸入資料的值。',
+						description: '商家的預約檢查模式 (UI 設定)。如果輸入資料中包含 `query.Booking_Mode`，將優先使用輸入資料的值。',
 					},
-				]
+				],
 			}
 		],
 	};
