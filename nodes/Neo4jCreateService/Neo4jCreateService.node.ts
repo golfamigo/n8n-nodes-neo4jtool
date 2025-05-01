@@ -105,7 +105,7 @@ export class Neo4jCreateService implements INodeType {
 				options: [
 					{
 						displayName: 'Booking Mode (UI Setting)',
-						name: 'bookingModeUISetting', // Use a distinct name for UI setting
+						name: 'booking_mode', // Use a distinct name for UI setting
 						type: 'options',
 						options: [
 							{ name: 'Time Only', value: 'TimeOnly' },
@@ -181,8 +181,8 @@ export class Neo4jCreateService implements INodeType {
 						this.logger.debug(`Using booking_mode from input query: ${bookingModeToUse}`);
 					} else {
 						// Use dot notation for collection parameter
-						bookingModeToUse = this.getNodeParameter('options.bookingModeUISetting', i, 'TimeOnly') as string;
-						this.logger.debug(`Input query.Booking_Mode invalid or missing. Falling back to UI parameter 'options.bookingModeUISetting': ${bookingModeToUse}`);
+						bookingModeToUse = this.getNodeParameter('options.booking_mode', i, 'TimeOnly') as string; // Use the default value defined in properties
+						this.logger.debug(`Input query.Booking_Mode invalid or missing. Falling back to UI parameter 'options.booking_mode': ${bookingModeToUse}`);
 						// Re-validate the fallback value (should always be valid due to 'options' type, but good practice)
 						if (!validBookingModes.includes(bookingModeToUse)) {
 							throw new NodeOperationError(node, `Invalid fallback booking mode from UI setting: ${bookingModeToUse}`, { itemIndex: i });
@@ -199,7 +199,7 @@ export class Neo4jCreateService implements INodeType {
 							duration_minutes: $duration_minutes,
 							description: $description,
 							price: $price,
-							booking_mode: $bookingModeParam, // Use distinct param name
+							booking_mode: $booking_mode_param, // Use distinct param name
 							created_at: datetime()
 						})
 					`;
@@ -214,7 +214,7 @@ export class Neo4jCreateService implements INodeType {
 						description,
 						// Handle optional price, ensuring it's an integer if provided
 						price: (price !== undefined) ? neo4j.int(price) : null,
-						bookingModeParam: bookingModeToUse, // Pass the final determined mode
+						booking_mode_param: bookingModeToUse, // Pass the final determined mode
 					};
 
 					// Combine query parts

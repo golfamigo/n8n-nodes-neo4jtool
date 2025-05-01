@@ -100,7 +100,29 @@ export class Neo4jUpdateBusiness implements INodeType {
 				default: '',
 				description: '新的商家描述 (可選)',
 			},
-			// Removed booking_mode parameter
+			// Add options collection for booking_mode
+			{
+				displayName: 'Options',
+				name: 'options',
+				type: 'collection',
+				placeholder: 'Add Option',
+				default: {},
+				options: [
+					{
+						displayName: 'Booking Mode (UI Setting)',
+						name: 'booking_mode', // Consistent name
+						type: 'options',
+						options: [
+							{ name: 'Time Only', value: 'TimeOnly' },
+							{ name: 'Staff Only', value: 'StaffOnly' },
+							{ name: 'Resource Only', value: 'ResourceOnly' },
+							{ name: 'Staff And Resource', value: 'StaffAndResource' },
+						],
+						default: 'TimeOnly', // Default to empty, update logic will handle it
+						description: '更新商家的預約檢查模式 (UI 設定)。如果輸入資料中包含 `query.Booking_Mode`，將優先使用輸入資料的值。留空則不更新此項。',
+					},
+				]
+			}
 		],
 	};
 
@@ -111,7 +133,7 @@ export class Neo4jUpdateBusiness implements INodeType {
 		let driver: Driver | undefined;
 		let session: Session | undefined;
 		const node = this.getNode();
-		// Removed validBookingModes definition
+		const validBookingModes = ['TimeOnly', 'StaffOnly', 'ResourceOnly', 'StaffAndResource']; // Define valid modes
 
 		try {
 			// 1. Get Credentials
@@ -150,9 +172,34 @@ export class Neo4jUpdateBusiness implements INodeType {
 					const phone = this.getNodeParameter('phone', i, undefined) as string | undefined;
 					const email = this.getNodeParameter('email', i, undefined) as string | undefined;
 					const description = this.getNodeParameter('description', i, undefined) as string | undefined;
-					// Removed booking_mode retrieval
 
-					// Removed booking_mode validation
+					// Determine the booking_mode to use (Input > UI Fallback)
+					let bookingModeToUse: string | undefined;
+					const itemData = items[i].json as IDataObject;
+					const queryData = itemData.query as IDataObject | undefined;
+					const bookingModeFromInput = queryData?.Booking_Mode as string | undefined;
+
+					this.logger.debug(`Input query data for business update: ${JSON.stringify(queryData)}`);
+					this.logger.debug(`Read booking_mode from input query.Booking_Mode: ${bookingModeFromInput}`);
+
+					if (bookingModeFromInput && validBookingModes.includes(bookingModeFromInput)) {
+						bookingModeToUse = bookingModeFromInput;
+						this.logger.debug(`Using booking_mode from input query: ${bookingModeToUse}`);
+					} else {
+						// Use dot notation for collection parameter, default to empty string if not set
+						const bookingModeFromUI = this.getNodeParameter('options.booking_mode', i, '') as string;
+						if (bookingModeFromUI && validBookingModes.includes(bookingModeFromUI)) {
+							bookingModeToUse = bookingModeFromUI;
+							this.logger.debug(`Input query.Booking_Mode invalid or missing. Falling back to UI parameter 'options.booking_mode': ${bookingModeToUse}`);
+						} else if (bookingModeFromUI) {
+							// Log if UI setting is present but invalid
+							this.logger.warn(`Invalid booking_mode value from UI setting ('options.booking_mode'): "${bookingModeFromUI}". Ignoring this field for update.`);
+						} else {
+							// Log if both input and UI are missing/empty
+							this.logger.debug(`Neither input query.Booking_Mode nor UI 'options.booking_mode' provided or valid. Booking mode will not be updated.`);
+						}
+					}
+					// Note: No error thrown here if invalid, just skip updating booking_mode
 
 					// Build SET clause dynamically based on provided parameters
 					const setClauses: string[] = [];
@@ -191,10 +238,15 @@ export class Neo4jUpdateBusiness implements INodeType {
 							parameters.description = description;
 							this.logger.info(`- Setting description: ${description}`);
 						}
-						// Removed booking_mode from SET clause logic
+						// Add booking_mode to SET clause if a valid value was determined
+						if (bookingModeToUse) {
+							setClauses.push('b.booking_mode = $booking_mode_param');
+							parameters.booking_mode_param = bookingModeToUse;
+							this.logger.info(`- Setting booking_mode: ${bookingModeToUse}`);
+						}
 
 					if (setClauses.length === 0) {
-						// If no optional parameters are provided, maybe just return the existing node or throw an error?
+						// If no optional parameters are provided (including booking_mode), maybe just return the existing node or throw an error?
 						// For now, let's return the existing node after matching.
 						this.logger.warn(`No update parameters provided for Business ID: ${businessId}. Returning current data.`);
 						const findQuery = 'MATCH (b:Business {business_id: $businessId}) RETURN b {.*} AS business';
