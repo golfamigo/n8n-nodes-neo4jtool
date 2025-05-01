@@ -96,49 +96,29 @@ export class Neo4jUpdateService implements INodeType {
 				displayName: 'Options',
 				name: 'options',
 				type: 'collection',
-				required: true,
 				placeholder: 'Add option',
 				default: {},
+				displayOptions: {
+					show: {
+						operation: ['create'],
+					},
+				},
 				options: [
 					{
 						displayName: 'Booking Mode (UI Setting)',
 						name: 'booking_mode',
 						type: 'options',
-						// 這裡添加 typeOptions 配置
-						typeOptions: {
-							// 這是關鍵配置，用於啟用 AI 按鈕
-							buttonConfig: {
-								action: {
-									type: 'askAiCodeGeneration',
-									target: 'options.booking_mode'
-								},
-								hasInputField: true,
-								label: '智能推薦模式'
-							}
-						},
 						options: [
-							{
-								name: 'Resource Only',
-								value: 'ResourceOnly',
-							},
-							{
-								name: 'Staff Only',
-								value: 'StaffOnly',
-							},
-							{
-								name: 'Staff And Resource',
-								value: 'StaffAndResource',
-							},
-							{
-								name: 'Time Only',
-								value: 'TimeOnly',
-							},
+							{ name: 'Time Only', value: 'TimeOnly' },
+							{ name: 'Staff Only', value: 'StaffOnly' },
+							{ name: 'Resource Only', value: 'ResourceOnly' },
+							{ name: 'Staff And Resource', value: 'StaffAndResource' },
 						],
 						default: 'TimeOnly',
-						description: '新的服務預約檢查模式 (可選)。', // Updated description for optional update
+						description: '服務的預約檢查模式 (可選)。',
 					},
 				],
-			}
+			},
 		],
 	};
 
