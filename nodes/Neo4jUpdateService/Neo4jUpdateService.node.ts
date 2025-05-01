@@ -110,20 +110,11 @@ export class Neo4jUpdateService implements INodeType {
 							{ name: 'Resource Only', value: 'ResourceOnly' },
 							{ name: 'Staff And Resource', value: 'StaffAndResource' },
 						],
-						default: 'TimeOnly', // Set a valid default to satisfy ESLint
-						description: '新的服務預約檢查模式 (UI 設定，可選)。如果通過輸入參數 `Booking Mode Input` 提供，將優先使用輸入值',
+						default: 'TimeOnly', // Keep default empty for optional UI setting
+						description: '新的服務預約檢查模式 (UI 設定，可選)。如果輸入資料中包含 `query.Booking_Mode`，將優先使用輸入資料的值。',
 					},
 				]
-			},
-			// Parameter to receive booking mode directly from input arguments
-			{
-				displayName: 'Booking Mode Input',
-				name: 'bookingModeInput',
-				type: 'string',
-				default: '',
-				description: 'Booking mode provided via input arguments (overrides UI setting)',
-				// Removed hidden: true as it's not a valid INodeProperties property
-			},
+			}
 		],
 	};
 
@@ -174,47 +165,28 @@ export class Neo4jUpdateService implements INodeType {
 					const description = this.getNodeParameter('description', i, '') as string;
 					const price = this.getNodeParameter('price', i, undefined) as number | undefined;
 
-					// Determine the booking_mode to use (Direct Input > UI Fallback)
-					let bookingModeToSet: string | undefined; // Renamed for clarity
-					const bookingModeFromInput = this.getNodeParameter('bookingModeInput', i, '') as string;
-					const bookingModeFromUI = this.getNodeParameter('options.bookingModeUISetting', i, 'TimeOnly') as string; // Read UI setting (now has default)
+					// Determine the booking_mode to use (Input > UI Fallback)
+					let bookingModeToUse: string | undefined;
+					const itemData = items[i].json as IDataObject;
+					const queryData = itemData.query as IDataObject | undefined;
+					const bookingModeFromInput = queryData?.Booking_Mode as string | undefined;
 					const validBookingModes = ['TimeOnly', 'StaffOnly', 'ResourceOnly', 'StaffAndResource'];
 
-					this.logger.debug(`Read booking_mode from direct input 'bookingModeInput': ${bookingModeFromInput}`);
-					this.logger.debug(`Read booking_mode from UI 'options.bookingModeUISetting': ${bookingModeFromUI}`);
+					context.logger.debug(`Input query data for service update: ${JSON.stringify(queryData)}`);
+					context.logger.debug(`Read booking_mode from input query.Booking_Mode: ${bookingModeFromInput}`);
 
-					// Prioritize valid input
 					if (bookingModeFromInput && validBookingModes.includes(bookingModeFromInput)) {
-						bookingModeToSet = bookingModeFromInput;
-						this.logger.debug(`Using booking_mode from direct input: ${bookingModeToSet}`);
-					}
-					// Only use UI setting if input was NOT provided AND UI setting is not empty (user explicitly selected something)
-					// Note: getNodeParameter returns the default ('TimeOnly') if nothing is selected.
-					// We need a way to distinguish between user selecting the default vs. not selecting anything.
-					// A common pattern is to add a "None" or "Do Not Change" option, or check if the parameter was actually set.
-					// Let's assume for now that if bookingModeFromInput is empty, we use the UI value,
-					// but we need to be careful not to update if the UI value is just the default and wasn't explicitly chosen.
-					// Simpler approach for now: Only update if bookingModeFromInput is valid. Ignore UI setting for update via MCP.
-					// If using UI, the user explicitly sets it. If using MCP, only bookingModeInput matters.
-					else if (bookingModeFromInput === '') { // Only consider UI if input is explicitly empty
-						// If bookingModeFromUI is not empty (meaning user selected something in UI or it defaulted)
-						// We will use it, but validation is needed.
-						if (bookingModeFromUI && validBookingModes.includes(bookingModeFromUI)) {
-							bookingModeToSet = bookingModeFromUI;
-							this.logger.debug(`Using booking_mode from UI setting: ${bookingModeToSet}`);
-						} else if (bookingModeFromUI !== '') { // If UI value is present but invalid
-							throw new NodeOperationError(node, `Invalid booking mode from UI setting: ${bookingModeFromUI}`, { itemIndex: i });
-						} else {
-							// bookingModeFromUI is empty, meaning user selected nothing (or default was empty - which it isn't now)
-							// In this case, we don't want to update the booking mode.
-							bookingModeToSet = undefined;
-							this.logger.debug(`No valid booking mode provided via input or UI selection. Booking mode will not be updated.`);
+						bookingModeToUse = bookingModeFromInput;
+						context.logger.debug(`Using booking_mode from input query: ${bookingModeToUse}`);
+					} else {
+						// Use dot notation for collection parameter
+						bookingModeToUse = this.getNodeParameter('options.bookingModeUISetting', i, '') as string; // Default is empty for optional update
+						context.logger.debug(`Input query.Booking_Mode invalid or missing. Falling back to UI parameter 'options.bookingModeUISetting': ${bookingModeToUse}`);
+						// Validate the fallback value only if it's not empty
+						if (bookingModeToUse !== '' && !validBookingModes.includes(bookingModeToUse)) {
+							throw new NodeOperationError(node, `Invalid fallback booking mode from UI setting: ${bookingModeToUse}`, { itemIndex: i });
 						}
-					} else if (bookingModeFromInput) {
-						// Input was provided but invalid
-						throw new NodeOperationError(node, `Invalid booking mode from input: ${bookingModeFromInput}`, { itemIndex: i });
 					}
-					// If bookingModeFromInput was empty, bookingModeToSet remains undefined unless UI was validly set.
 
 
 					// Build SET clause dynamically
@@ -225,15 +197,8 @@ export class Neo4jUpdateService implements INodeType {
 					if (duration_minutes !== undefined && duration_minutes !== null) { setClauses.push('s.duration_minutes = $duration_minutes'); parameters.duration_minutes = neo4j.int(duration_minutes); }
 					if (description !== undefined && description !== '') { setClauses.push('s.description = $description'); parameters.description = description; }
 					if (price !== undefined && price !== null) { setClauses.push('s.price = $price'); parameters.price = neo4j.int(price); }
-					// Only add to SET clause if bookingModeToSet has a valid value
-					if (bookingModeToSet !== undefined && bookingModeToSet !== '') {
-						setClauses.push('s.booking_mode = $bookingModeParam');
-						parameters.bookingModeParam = bookingModeToSet;
-						this.logger.debug(`Adding booking_mode to SET clause: ${bookingModeToSet}`);
-					} else {
-						this.logger.debug(`Booking mode will not be updated.`);
-					}
-
+					// Use the determined bookingModeToUse
+					if (bookingModeToUse !== undefined && bookingModeToUse !== '') { setClauses.push('s.booking_mode = $bookingModeParam'); parameters.bookingModeParam = bookingModeToUse; }
 
 					// Start building the query
 					let query = `MATCH (s:Service {service_id: $serviceId})\n`;
