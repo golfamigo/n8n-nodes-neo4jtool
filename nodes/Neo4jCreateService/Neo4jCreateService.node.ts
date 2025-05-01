@@ -35,6 +35,7 @@ export class Neo4jCreateService implements INodeType {
 		},
 		inputs: ['main'],
 		outputs: ['main'],
+		// @ts-ignore - Workaround
 		usableAsTool: true,
 
 		// --- Credentials ---
