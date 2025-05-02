@@ -7,7 +7,7 @@ import type {
 	INodeType,
 	INodeTypeDescription,
 	ICredentialDataDecryptedObject,
-	IDataObject,
+	// Removed unused: IDataObject,
 } from 'n8n-workflow';
 import { NodeOperationError } from 'n8n-workflow';
 import neo4j, { Driver, Session, auth } from 'neo4j-driver';
@@ -189,12 +189,12 @@ export class Neo4jFindAvailableSlotsTimeOnly implements INodeType {
 					throw new NodeOperationError(node, `找不到商家 ID '${businessId}' 或服務 ID '${serviceId}'，或兩者沒有關聯。`, { itemIndex });
 				}
 
-				durationMinutes = typeof serviceResults[0].json?.durationMinutes === 'number' 
-                    ? serviceResults[0].json.durationMinutes 
+				durationMinutes = typeof serviceResults[0].json?.durationMinutes === 'number'
+                    ? serviceResults[0].json.durationMinutes
                     : null;
 
-				if (durationMinutes === null) {
-					throw new NodeOperationError(node, `無法獲取服務 ID: ${serviceId} 的時長`, { itemIndex });
+				if (durationMinutes === null || durationMinutes <= 0) { // Add check for duration <= 0
+					throw new NodeOperationError(node, `無法獲取或服務 ID: ${serviceId} 的時長無效 (${durationMinutes})`, { itemIndex });
 				}
 
 				this.logger.debug('獲取到的服務時長:', { durationMinutes });
@@ -205,17 +205,22 @@ export class Neo4jFindAvailableSlotsTimeOnly implements INodeType {
 			// 5. 生成時間槽並檢查可用性
 			const startDt = DateTime.fromISO(normalizedStartDateTime);
 			const endDt = DateTime.fromISO(normalizedEndDateTime);
-			
+
 			if (!startDt.isValid || !endDt.isValid) {
 				throw new NodeOperationError(node, '無效的日期時間格式', { itemIndex });
 			}
 
 			// 計算時間範圍內總分鐘數，用於確定可能的時段數量
 			const durationInMinutes = endDt.diff(startDt, 'minutes').minutes;
-			const totalPossibleSlots = Math.floor(durationInMinutes / intervalMinutes);
-			
-			this.logger.debug('時間範圍統計:', { 
-				開始: startDt.toISO(), 
+
+			// Handle edge case where interval is larger than duration or duration is negative
+			if (intervalMinutes <= 0) {
+				throw new NodeOperationError(node, 'Slot Interval (Minutes) 必須大於 0。', { itemIndex });
+			}
+			const totalPossibleSlots = durationInMinutes >= 0 ? Math.floor(durationInMinutes / intervalMinutes) : 0;
+
+			this.logger.debug('時間範圍統計:', {
+				開始: startDt.toISO(),
 				結束: endDt.toISO(),
 				總分鐘數: durationInMinutes,
 				總可能時段數: totalPossibleSlots
@@ -225,14 +230,35 @@ export class Neo4jFindAvailableSlotsTimeOnly implements INodeType {
 			const possibleSlots: string[] = [];
 			for (let i = 0; i < totalPossibleSlots; i++) {
 				const slotTime = startDt.plus({ minutes: i * intervalMinutes });
-				possibleSlots.push(slotTime.toISO()!);
+				// Ensure generated slot is valid before pushing
+                if (slotTime.isValid && slotTime.toISO()) {
+					possibleSlots.push(slotTime.toISO()!);
+				} else {
+					this.logger.warn(`Generated invalid slot time at index ${i}, skipping.`);
+				}
 			}
 
 			// 使用輔助函數檢查每個時段的可用性
 			const availableSlots: string[] = [];
-			
+
 			for (const slot of possibleSlots) {
 				try {
+					// Additional check: Ensure the slot + duration doesn't exceed the end time
+                    const currentSlotStart = DateTime.fromISO(slot);
+                    // durationMinutes is guaranteed non-null and > 0 here
+                    const currentSlotEnd = currentSlotStart.plus({ minutes: durationMinutes! });
+
+                    if (!currentSlotStart.isValid || !currentSlotEnd.isValid) {
+                        this.logger.warn(`Skipping check for invalid slot DateTime: ${slot}`);
+                        continue;
+                    }
+
+                    if (currentSlotEnd > endDt) {
+                        this.logger.debug(`Skipping slot ${slot} as it ends after the range end ${endDt.toISO()}`);
+                        continue;
+                    }
+
+
 					// 準備 checkTimeOnlyAvailability 函數的參數
 					const checkParams: TimeOnlyCheckParams = {
 						businessId,
@@ -253,8 +279,10 @@ export class Neo4jFindAvailableSlotsTimeOnly implements INodeType {
 					// 時段不可用的錯誤，記錄但不中斷流程
 					if (slotError instanceof NodeOperationError) {
 						this.logger.debug(`時段 ${slot} 不可用: ${slotError.message}`);
-					} else {
-						this.logger.debug(`檢查時段 ${slot} 時發生未知錯誤`);
+					} else if (slotError instanceof Error) {
+						this.logger.debug(`檢查時段 ${slot} 時發生錯誤: ${slotError.message}`);
+                    } else {
+						this.logger.warn(`檢查時段 ${slot} 時發生未知錯誤`);
 					}
 				}
 			}
@@ -267,7 +295,7 @@ export class Neo4jFindAvailableSlotsTimeOnly implements INodeType {
 					availableSlots,
 					mode: "TimeOnly",
 					serviceId,
-					serviceDuration: durationMinutes,
+					serviceDuration: durationMinutes, // durationMinutes is guaranteed non-null here
 					checkedSlots: possibleSlots.length
 				},
 				pairedItem: { item: itemIndex },

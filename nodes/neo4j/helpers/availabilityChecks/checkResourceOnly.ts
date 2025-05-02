@@ -24,7 +24,7 @@ function isValidResourceTypeId(resourceTypeId: string | undefined | null): boole
 	if (typeof resourceTypeId !== 'string' || resourceTypeId.trim() === '') {
 		return false;
 	}
-	
+
 	// Basic UUID format check (if system uses UUID)
 	const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 	return uuidPattern.test(resourceTypeId);
@@ -42,19 +42,24 @@ function prepareResourceAvailabilityParams(
 	if (serviceDuration <= 0 || serviceDuration > 1440) { // 1440 minutes = 24 hours
 		throw new Error(`Service duration ${serviceDuration} is outside valid range (1-1440)`);
 	}
-	
+
 	if (resourceQuantity <= 0 || resourceQuantity > 1000) { // Set reasonable upper limit
 		throw new Error(`Resource quantity ${resourceQuantity} is outside valid range (1-1000)`);
 	}
-	
+
 	if (!isValidResourceTypeId(resourceTypeId)) {
 		throw new Error(`Invalid resource type ID: ${resourceTypeId}`);
 	}
-	
+
+	// Check slotStart and slotEnd validity before calling toISO()
+	if (!slotStart.isValid || !slotEnd.isValid) {
+		throw new Error(`Internal error: Invalid DateTime object encountered during parameter preparation.`);
+	}
+
 	return {
 		resourceTypeId,
-		slotStart: slotStart.toISO(),
-		slotEnd: slotEnd.toISO(),
+		slotStart: slotStart.toISO()!, // Use non-null assertion operator
+		slotEnd: slotEnd.toISO()!,   // Use non-null assertion operator
 	};
 }
 
@@ -100,7 +105,7 @@ export async function checkResourceOnlyAvailability(
 	// --- 3. Get Resource Type Capacity ---
 	const capacityQuery = `
         MATCH (rt:ResourceType {type_id: $resourceTypeId})
-        WHERE rt.business_id = $businessId 
+        WHERE rt.business_id = $businessId
           OR EXISTS((rt)-[:BELONGS_TO]->(:Business {business_id: $businessId}))
         RETURN rt.total_capacity AS totalCapacity
     `;
@@ -129,7 +134,7 @@ export async function checkResourceOnlyAvailability(
 	} catch (error) {
 		throw new NodeOperationError(params.node.getNode(), `Parameter validation error: ${error instanceof Error ? error.message : 'Unknown error'}`, { itemIndex: params.itemIndex });
 	}
-	
+
 	const usedQuantityQuery = `
         MATCH (existing:Booking)-[:USES_RESOURCE]->(ru:ResourceUsage)-[:OF_TYPE]->(:ResourceType {type_id: $resourceTypeId})
         MATCH (existing)-[:FOR_SERVICE]->(s_existing:Service) // Get existing booking's service

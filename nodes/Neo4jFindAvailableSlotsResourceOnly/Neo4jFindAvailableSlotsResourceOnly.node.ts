@@ -26,7 +26,7 @@ import {
 } from '../neo4j/helpers/timeUtils';
 
 // --- 導入可用性檢查輔助函式 ---
-import { checkTimeOnlyAvailability } from '../neo4j/helpers/availabilityChecks/checkTimeOnly';
+// Removed unused: import { checkTimeOnlyAvailability } from '../neo4j/helpers/availabilityChecks/checkTimeOnly';
 import { checkResourceOnlyAvailability } from '../neo4j/helpers/availabilityChecks/checkResourceOnly';
 
 // --- Node Class Definition ---
@@ -285,13 +285,13 @@ export class Neo4jFindAvailableSlotsResourceOnly implements INodeType {
 				WITH datetime($startDateTime) as rangeStart,
 					 datetime($endDateTime) as rangeEnd,
 					 $intervalMinutes as intervalMinutes
-				
+
 				// 生成索引序列，然後生成所有潛在時段
 				WITH rangeStart, rangeEnd, intervalMinutes,
 					 range(0, duration.between(rangeStart, rangeEnd).minutes / intervalMinutes) as indices
 				UNWIND indices as index
 				WITH rangeStart + duration({minutes: index * intervalMinutes}) as slotTime
-				
+
 				// 返回可能的時段
 				RETURN toString(slotTime) as potentialSlot
 				ORDER BY slotTime
@@ -341,7 +341,11 @@ export class Neo4jFindAvailableSlotsResourceOnly implements INodeType {
 						availableSlots.push(slot);
 					} catch (error) {
 						// 時段不可用，繼續檢查下一個
-						this.logger.debug(`時段 ${slot} 不可用: ${(error as Error).message}`);
+						if (error instanceof Error) {
+							this.logger.debug(`時段 ${slot} 不可用: ${error.message}`);
+						} else {
+							this.logger.debug(`檢查時段 ${slot} 時發生未知錯誤`);
+						}
 					}
 				}
 

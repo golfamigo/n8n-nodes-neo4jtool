@@ -27,7 +27,7 @@ import {
 
 // --- 導入可用性檢查輔助函式 ---
 import { checkStaffOnlyAvailability } from '../neo4j/helpers/availabilityChecks/checkStaffOnly';
-import { checkTimeOnlyAvailability } from '../neo4j/helpers/availabilityChecks/checkTimeOnly';
+// Removed unused: import { checkTimeOnlyAvailability } from '../neo4j/helpers/availabilityChecks/checkTimeOnly';
 
 // --- Node Class Definition ---
 export class Neo4jFindAvailableSlotsStaffOnly implements INodeType {
@@ -174,10 +174,9 @@ export class Neo4jFindAvailableSlotsStaffOnly implements INodeType {
 				throw parseNeo4jError(node, connectionError, 'Neo4j 連接失敗。');
 			}
 
-			// 4. 查詢商家信息、服務時長和營業時間
+			// 4. 查詢商家信息、服務時長和營業時間 (不再檢查 booking_mode)
 			const preQuery = `
 				MATCH (b:Business {business_id: $businessId})
-				WHERE b.booking_mode = 'StaffOnly'
 				OPTIONAL MATCH (b)-[:HAS_HOURS]->(bh:BusinessHours)
 				WITH b, collect(bh {
 					day_of_week: bh.day_of_week,
@@ -188,10 +187,9 @@ export class Neo4jFindAvailableSlotsStaffOnly implements INodeType {
 				// 獲取服務信息
 				MATCH (s:Service {service_id: $serviceId})<-[:OFFERS]-(b)
 
-				// 確認指定員工存在並能提供該服務 (修正關係方向)
+				// 確認指定員工存在並能提供該服務
 				MATCH (st:Staff {staff_id: $requiredStaffId})-[:WORKS_AT]->(b)
-				WITH b, hoursList, s, st
-				MATCH (st)-[:CAN_PROVIDE]->(s)
+				WHERE EXISTS { MATCH (st)-[:CAN_PROVIDE]->(s) }
 
 				RETURN s.duration_minutes AS durationMinutes,
 				       hoursList,
@@ -199,7 +197,7 @@ export class Neo4jFindAvailableSlotsStaffOnly implements INodeType {
 			`;
 			const preQueryParams = { businessId, serviceId, requiredStaffId };
 			let durationMinutes: number | null = null;
-			let businessHours: any[] = [];
+			let businessHours: any[] = []; // Although not directly used for filtering here, keep for context/future use
 			let staffName: string | null = null;
 
 			try {
@@ -210,7 +208,8 @@ export class Neo4jFindAvailableSlotsStaffOnly implements INodeType {
 				const preResult = await session.run(preQuery, preQueryParams);
 
 				if (preResult.records.length === 0) {
-					throw new NodeOperationError(node, `找不到 StaffOnly 模式的商家 '${businessId}'，或服務 '${serviceId}'，或指定員工 '${requiredStaffId}' 無法提供該服務。`, { itemIndex });
+					// More specific error
+					throw new NodeOperationError(node, `找不到商家 '${businessId}', 或服務 '${serviceId}', 或員工 '${requiredStaffId}' (可能不存在, 不屬於該商家, 或無法提供此服務).`, { itemIndex });
 				}
 
 				const record = preResult.records[0];
@@ -238,13 +237,20 @@ export class Neo4jFindAvailableSlotsStaffOnly implements INodeType {
 				WITH datetime($startDateTime) as rangeStart,
 					 datetime($endDateTime) as rangeEnd,
 					 $intervalMinutes as intervalMinutes
-				
+
 				// 生成索引序列，然後生成所有潛在時段
 				WITH rangeStart, rangeEnd, intervalMinutes,
-					 range(0, duration.between(rangeStart, rangeEnd).minutes / intervalMinutes) as indices
+					 CASE
+						 WHEN duration.between(rangeStart, rangeEnd).minutes < 0 THEN [] // Handle negative duration
+						 ELSE range(0, duration.between(rangeStart, rangeEnd).minutes / intervalMinutes)
+					 END as indices
 				UNWIND indices as index
 				WITH rangeStart + duration({minutes: index * intervalMinutes}) as slotTime
-				
+
+				// Filter slots ending after rangeEnd (important after adding duration)
+				// We need durationMinutes here, but it's not available in this query yet.
+				// The check will happen inside the loop using checkStaffOnlyAvailability.
+
 				// 返回可能的時段
 				RETURN toString(slotTime) as potentialSlot
 				ORDER BY slotTime
@@ -277,6 +283,25 @@ export class Neo4jFindAvailableSlotsStaffOnly implements INodeType {
 				// 針對每個潛在時段，使用 checkStaffOnlyAvailability 輔助函式檢查是否可用
 				for (const slot of potentialSlots) {
 					try {
+						// Ensure durationMinutes is not null before calling the check
+						if (durationMinutes === null) {
+							throw new NodeOperationError(node, "Internal error: Service duration is null.", { itemIndex });
+						}
+						// Check if slot end time exceeds the requested range end time
+						const { DateTime } = require('luxon');
+						const slotStart = DateTime.fromISO(slot);
+						const slotEnd = slotStart.plus({ minutes: durationMinutes });
+						const rangeEndDt = DateTime.fromISO(normalizedEndDateTime);
+						if (!slotStart.isValid || !slotEnd.isValid || !rangeEndDt.isValid) {
+							this.logger.warn(`Skipping invalid slot or range end: ${slot}`);
+							continue; // Skip this invalid slot
+						}
+						if (slotEnd > rangeEndDt) {
+							this.logger.debug(`Skipping slot ${slot} as it ends after range end ${normalizedEndDateTime}`);
+							continue; // Skip slot if it ends after the specified range
+						}
+
+
 						await checkStaffOnlyAvailability(
 							session,
 							{
@@ -293,7 +318,11 @@ export class Neo4jFindAvailableSlotsStaffOnly implements INodeType {
 						availableSlots.push(slot);
 					} catch (error) {
 						// 時段不可用，繼續檢查下一個
-						this.logger.debug(`時段 ${slot} 不可用: ${(error as Error).message}`);
+						if (error instanceof Error) {
+							this.logger.debug(`時段 ${slot} 不可用: ${error.message}`);
+						} else {
+							this.logger.debug(`檢查時段 ${slot} 時發生未知錯誤`);
+						}
 					}
 				}
 
