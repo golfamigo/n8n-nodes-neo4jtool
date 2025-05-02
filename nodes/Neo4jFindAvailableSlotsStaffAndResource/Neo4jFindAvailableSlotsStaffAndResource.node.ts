@@ -318,8 +318,9 @@ export class Neo4jFindAvailableSlotsStaffAndResource implements INodeType {
 
 				// 2. Calculate end time, date, and day of week
 				WITH slotStart, serviceDuration, slotStart + serviceDuration AS slotEnd,
-					 date(slotStart) AS slotDate, date(slotStart).dayOfWeek AS slotDayOfWeek,
-					 businessId, staffId, resourceTypeId, resourceCapacity, serviceId, durationMinutesVal
+						date(slotStart) AS slotDate, date(slotStart).dayOfWeek AS slotDayOfWeek,
+						businessId, staffId, resourceTypeId, resourceCapacity, serviceId, durationMinutesVal,
+						rangeEnd  // 加上這個變數
 
 				// Filter out slots that end after the requested range end time
 				WHERE slotEnd <= rangeEnd
