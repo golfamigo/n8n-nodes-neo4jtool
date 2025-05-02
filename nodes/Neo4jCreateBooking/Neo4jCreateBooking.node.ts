@@ -4,17 +4,20 @@ import type {
 	INodeType,
 	INodeTypeDescription,
 	IDataObject,
-	ICredentialDataDecryptedObject, // Added for credentials
+	ICredentialDataDecryptedObject,
 } from 'n8n-workflow';
 import { NodeOperationError } from 'n8n-workflow';
-import neo4j, { type Session, type Driver, auth } from 'neo4j-driver'; // Added Driver, auth
+import neo4j, { type Session, type Driver, auth } from 'neo4j-driver'; // Keep neo4j for Driver/Session types and auth
 import {
 	runCypherQuery,
-	parseNeo4jError, // Added for error handling consistency
-	// Removed convertNeo4jProperties, generateBookingId, getNeo4jSession
-	// Removed unused import: convertNeo4jValueToJs
-} from '../neo4j/helpers/utils';
-import { toNeo4jDateTimeString } from '../neo4j/helpers/timeUtils';
+	parseNeo4jError,
+	prepareQueryParams, // Import prepareQueryParams
+	// convertNeo4jValueToJs // No longer directly used here
+} from '../neo4j/helpers/utils'; // Adjusted path assuming helpers are in ../neo4j/helpers/
+import { toNeo4jDateTimeString } from '../neo4j/helpers/timeUtils'; // Adjusted path
+import {
+	generateResourceUsageCreationQuery, // Import resource usage creation helper
+} from '../neo4j/helpers/resourceUtils'; // Adjusted path
 import {
 	checkTimeOnlyAvailability,
 	checkResourceOnlyAvailability,
@@ -24,16 +27,16 @@ import {
 	type ResourceOnlyCheckParams,
 	type StaffOnlyCheckParams,
 	type StaffAndResourceCheckParams,
-} from '../neo4j/helpers/availabilityChecks'; // Import check functions
+} from '../neo4j/helpers/availabilityChecks'; // Adjusted path
 
 export class Neo4jCreateBooking implements INodeType {
 	description: INodeTypeDescription = {
 		displayName: 'Neo4j Create Booking',
 		name: 'neo4jCreateBooking',
-		icon: 'file:../neo4j/neo4j.svg',
+		icon: 'file:../neo4j/neo4j.svg', // Adjusted path
 		group: ['transform'],
-		version: 1,
-		description: 'Creates a new booking record in Neo4j after checking availability based on the service\'s booking mode', // Updated description
+		version: 1.1, // Incremented version due to refactoring
+		description: 'Creates a new booking record in Neo4j after checking availability based on the service\'s booking mode using helper functions', // Updated description
 		defaults: {
 			name: 'Neo4j Create Booking',
 		},
@@ -48,6 +51,7 @@ export class Neo4jCreateBooking implements INodeType {
 			},
 		],
 		properties: [
+			// Properties remain the same as before...
 			{
 				displayName: 'Customer ID',
 				name: 'customerId',
@@ -85,14 +89,14 @@ export class Neo4jCreateBooking implements INodeType {
 				name: 'staffId',
 				type: 'string',
 				default: '',
-				description: 'The unique ID of the staff member assigned (UUID). Required if the service\'s booking mode is StaffOnly or StaffAndResource.', // Updated description
+				description: 'The unique ID of the staff member assigned (UUID). Required if the service\'s booking mode is StaffOnly or StaffAndResource.',
 			},
 			{
 				displayName: 'Resource Type ID (Optional)',
 				name: 'resourceTypeId',
 				type: 'string',
 				default: '',
-				description: 'The unique ID of the resource type required (UUID). Required if the service\'s booking mode is ResourceOnly or StaffAndResource.', // Updated description
+				description: 'The unique ID of the resource type required (UUID). Required if the service\'s booking mode is ResourceOnly or StaffAndResource.',
 			},
 			{
 				displayName: 'Resource Quantity (Optional)',
@@ -120,44 +124,39 @@ export class Neo4jCreateBooking implements INodeType {
 	async execute(this: IExecuteFunctions): Promise<INodeExecutionData[][]> {
 		const items = this.getInputData();
 		const returnData: INodeExecutionData[] = [];
-		let driver: Driver | undefined; // Use undefined initial state
-		let session: Session | undefined; // Use undefined initial state
-		const node = this.getNode(); // Get node reference for error handling
+		let driver: Driver | undefined;
+		let session: Session | undefined;
+		const node = this.getNode();
 
 		try {
-			// 1. Get Credentials
+			// 1. Get Credentials and Establish Connection (Same as before)
 			const credentials = await this.getCredentials('neo4jApi') as ICredentialDataDecryptedObject;
-
-			// 2. Validate Credentials
 			if (!credentials || !credentials.host || !credentials.port || !credentials.username || typeof credentials.password === 'undefined') {
 				throw new NodeOperationError(node, 'Neo4j credentials are not fully configured or missing required fields (host, port, username, password).', { itemIndex: 0 });
 			}
-
-			const uri = `${credentials.host}:${credentials.port}`; // Combine host and port
-			const username = credentials.username as string; // Use username
+			const uri = `${credentials.host}:${credentials.port}`;
+			const username = credentials.username as string;
 			const password = credentials.password as string;
-			const database = credentials.database as string || 'neo4j'; // Default to 'neo4j' if undefined
+			const database = credentials.database as string || 'neo4j';
 
-			// 3. Establish Neo4j Connection
 			try {
-				driver = neo4j.driver(uri, auth.basic(username, password)); // Use auth.basic
-				await driver.verifyConnectivity(); // Verify connection
+				driver = neo4j.driver(uri, auth.basic(username, password));
+				await driver.verifyConnectivity();
 				this.logger.debug('Neo4j driver connected successfully.');
-				session = driver.session({ database }); // Open session
+				session = driver.session({ database });
 				this.logger.debug(`Neo4j session opened for database: ${database}`);
 			} catch (connectionError) {
 				this.logger.error('Failed to connect to Neo4j or open session:', connectionError);
 				throw parseNeo4jError(node, connectionError, 'Failed to establish Neo4j connection or session.');
 			}
 
-
 			// 4. Loop Through Input Items
 			for (let itemIndex = 0; itemIndex < items.length; itemIndex++) {
-				// Ensure session is available inside the loop
 				if (!session) {
 					throw new NodeOperationError(node, 'Neo4j session is not available.', { itemIndex });
 				}
 				try {
+					// Get Parameters (Same as before)
 					const customerId = this.getNodeParameter('customerId', itemIndex, '') as string;
 					const businessId = this.getNodeParameter('businessId', itemIndex, '') as string;
 					const serviceId = this.getNodeParameter('serviceId', itemIndex, '') as string;
@@ -167,18 +166,18 @@ export class Neo4jCreateBooking implements INodeType {
 					const resourceQuantity = this.getNodeParameter('resourceQuantity', itemIndex, 1) as number;
 					const notes = this.getNodeParameter('notes', itemIndex, '') as string;
 
-					// Validate required IDs
+					// Validate required IDs (Same as before)
 					if (!customerId || !businessId || !serviceId) {
 						throw new NodeOperationError(this.getNode(), 'Customer ID, Business ID, and Service ID are required.', { itemIndex });
 					}
 
-					// Normalize booking time
+					// Normalize booking time using helper (Same as before)
 					const bookingTime = toNeo4jDateTimeString(bookingTimeInput);
 					if (!bookingTime) {
 						throw new NodeOperationError(this.getNode(), `Invalid booking time format: ${bookingTimeInput}. Please use ISO 8601 format.`, { itemIndex });
 					}
 
-					// 1. Get Service Booking Mode (Replaces getting business booking mode)
+					// 1. Get Service Booking Mode using helper (Same as before)
 					const serviceModeQuery = 'MATCH (s:Service {service_id: $serviceId}) RETURN s.booking_mode AS bookingMode';
 					const serviceModeParams = { serviceId };
 					const serviceModeResult = await runCypherQuery.call(this, session, serviceModeQuery, serviceModeParams, false, itemIndex);
@@ -186,15 +185,13 @@ export class Neo4jCreateBooking implements INodeType {
 					if (serviceModeResult.length === 0) {
 						throw new NodeOperationError(this.getNode(), `Service not found with ID: ${serviceId}`, { itemIndex });
 					}
-					const bookingMode = serviceModeResult[0].json.bookingMode as string; // Use service's booking mode
+					const bookingMode = serviceModeResult[0].json.bookingMode as string;
 					if (!bookingMode) {
-						// This case should ideally not happen if bookingMode is required on Service creation
 						throw new NodeOperationError(this.getNode(), `Booking mode not set for service ID: ${serviceId}`, { itemIndex });
 					}
 					this.logger.debug(`[Create Booking] Service ${serviceId} booking mode: ${bookingMode}`);
 
-
-					// 2. Perform Availability Check based on Service's Booking Mode
+					// 2. Perform Availability Check using helpers (Same as before)
 					this.logger.debug(`[Create Booking] Performing availability check for mode: ${bookingMode}`);
 					switch (bookingMode) {
 						case 'TimeOnly':
@@ -202,18 +199,18 @@ export class Neo4jCreateBooking implements INodeType {
 							await checkTimeOnlyAvailability(session, timeParams, this);
 							break;
 						case 'ResourceOnly':
-							if (!resourceTypeId) throw new NodeOperationError(this.getNode(), 'Resource Type ID is required for ResourceOnly service booking mode.', { itemIndex }); // Updated error message
-							const resourceParams: ResourceOnlyCheckParams = { businessId, serviceId, resourceTypeId, resourceQuantity, bookingTime, itemIndex, node: this, customerId }; // Added customerId
+							if (!resourceTypeId) throw new NodeOperationError(this.getNode(), 'Resource Type ID is required for ResourceOnly service booking mode.', { itemIndex });
+							const resourceParams: ResourceOnlyCheckParams = { businessId, serviceId, resourceTypeId, resourceQuantity, bookingTime, itemIndex, node: this, customerId };
 							await checkResourceOnlyAvailability(session, resourceParams, this);
 							break;
 						case 'StaffOnly':
-							if (!staffId) throw new NodeOperationError(this.getNode(), 'Staff ID is required for StaffOnly service booking mode.', { itemIndex }); // Updated error message
+							if (!staffId) throw new NodeOperationError(this.getNode(), 'Staff ID is required for StaffOnly service booking mode.', { itemIndex });
 							const staffParams: StaffOnlyCheckParams = { businessId, serviceId, staffId, bookingTime, itemIndex, node: this, customerId };
 							await checkStaffOnlyAvailability(session, staffParams, this);
 							break;
 						case 'StaffAndResource':
-							if (!staffId) throw new NodeOperationError(this.getNode(), 'Staff ID is required for StaffAndResource service booking mode.', { itemIndex }); // Updated error message
-							if (!resourceTypeId) throw new NodeOperationError(this.getNode(), 'Resource Type ID is required for StaffAndResource service booking mode.', { itemIndex }); // Updated error message
+							if (!staffId) throw new NodeOperationError(this.getNode(), 'Staff ID is required for StaffAndResource service booking mode.', { itemIndex });
+							if (!resourceTypeId) throw new NodeOperationError(this.getNode(), 'Resource Type ID is required for StaffAndResource service booking mode.', { itemIndex });
 							const staffResourceParams: StaffAndResourceCheckParams = { businessId, serviceId, staffId, resourceTypeId, resourceQuantity, bookingTime, itemIndex, node: this, customerId };
 							await checkStaffAndResourceAvailability(session, staffResourceParams, this);
 							break;
@@ -223,29 +220,44 @@ export class Neo4jCreateBooking implements INodeType {
 					this.logger.debug(`[Create Booking] Availability check passed for time: ${bookingTime}`);
 
 					// 3. Create Booking if check passed
-					const createParams: IDataObject = {
+					// Prepare parameters object WITHOUT manual neo4j.int()
+					const createParamsRaw: IDataObject = {
 						customerId,
 						businessId,
 						serviceId,
-						bookingTime, // Use normalized time
+						bookingTime,
 						status: 'Confirmed',
 						notes,
-						// Optional params based on service's booking mode
 						staffId: (bookingMode === 'StaffOnly' || bookingMode === 'StaffAndResource') ? staffId : null,
 						resourceTypeId: (bookingMode === 'ResourceOnly' || bookingMode === 'StaffAndResource') ? resourceTypeId : null,
-						resourceQuantity: (bookingMode === 'ResourceOnly' || bookingMode === 'StaffAndResource') ? neo4j.int(resourceQuantity) : null,
+						// Pass resourceQuantity as a standard number; prepareQueryParams will handle it
+						resourceQuantity: (bookingMode === 'ResourceOnly' || bookingMode === 'StaffAndResource') ? resourceQuantity : null,
 					};
 
-					// Create Query - adjusted optional relationship logic
+					// Use prepareQueryParams helper
+					const preparedCreateParams = prepareQueryParams(createParamsRaw);
+
+					// Generate resource usage part using helper function
+					const resourceUsageCypher = (bookingMode === 'ResourceOnly' || bookingMode === 'StaffAndResource')
+						? generateResourceUsageCreationQuery(
+							'bk',                 // Variable name for the booking node in the main query
+							'$resourceTypeId',    // Parameter name expected by the main query
+							'$resourceQuantity',  // Parameter name expected by the main query
+							'$businessId',        // Parameter name expected by the main query
+							false                 // Do not add 'WITH bk' inside the helper block
+						)
+						: '';
+
+					// Construct the final query using the resource helper
 					const createQuery = `
 						// Find existing nodes
 						MATCH (c:Customer {customer_id: $customerId})
 						MATCH (b:Business {business_id: $businessId})
 						MATCH (s:Service {service_id: $serviceId})
 
-						// Create Booking node using apoc.create.uuid() for booking_id
+						// Create Booking node
 						CREATE (bk:Booking {
-							booking_id: apoc.create.uuid(), // Use apoc.create.uuid()
+							booking_id: apoc.create.uuid(),
 							customer_id: $customerId,
 							business_id: $businessId,
 							service_id: $serviceId,
@@ -260,74 +272,69 @@ export class Neo4jCreateBooking implements INodeType {
 						MERGE (bk)-[:AT_BUSINESS]->(b)
 						MERGE (bk)-[:FOR_SERVICE]->(s)
 
-						// Create optional relationships based on service's booking mode
+						// Optionally link Staff
 						WITH bk, c, b, s // Pass bk along
 						${(bookingMode === 'StaffOnly' || bookingMode === 'StaffAndResource') ? `
-						OPTIONAL MATCH (st:Staff {staff_id: $staffId}) // staffId is validated earlier based on mode
-						// WHERE st IS NOT NULL // Removed redundant check, should exist if required by mode
+						OPTIONAL MATCH (st:Staff {staff_id: $staffId})
 						MERGE (bk)-[:SERVED_BY]->(st)
 						` : ''}
-						WITH bk, c, b, s // Pass bk along
-						${(bookingMode === 'ResourceOnly' || bookingMode === 'StaffAndResource') ? `
-						OPTIONAL MATCH (rt:ResourceType {type_id: $resourceTypeId}) // resourceTypeId is validated earlier
-						// WHERE rt IS NOT NULL AND $resourceQuantity IS NOT NULL // Removed redundant checks
-						CREATE (ru:ResourceUsage {
-							usage_id: apoc.create.uuid(),
-							booking_id: bk.booking_id,
-							resource_type_id: $resourceTypeId,
-							quantity: $resourceQuantity
-						})
-						MERGE (bk)-[:USES_RESOURCE]->(ru)
-						MERGE (ru)-[:OF_TYPE]->(rt)
-						` : ''}
+
+						// Optionally create ResourceUsage using the generated Cypher
+						WITH bk, c, b, s // Pass bk along again
+						${resourceUsageCypher} // Inject the generated resource usage Cypher block
 
 						// Return the created booking
-						RETURN bk {.*} AS booking // Return properties directly
+						// Ensure 'bk' is the final variable before RETURN if resourceUsageCypher was added
+						// If resourceUsageCypher is empty, the last WITH carries bk. If it's not empty,
+						// the generateResourceUsageCreationQuery with withBookingAfter=false doesn't add a final WITH bk,
+						// so we need one if the block was added. Let's add it unconditionally before RETURN for clarity.
+						WITH bk
+						RETURN bk {.*} AS booking
 					`;
 
-					this.logger.debug('[Create Booking] Executing create query with params:', createParams);
-					const results = await runCypherQuery.call(this, session, createQuery, createParams, true, itemIndex); // Read results
-					this.logger.debug(`[Create Booking] Query executed, results count: ${results.length}`); // Fixed logger param
+					this.logger.debug('[Create Booking] Executing create query with prepared params:', preparedCreateParams);
+					// Use preparedCreateParams in runCypherQuery
+					const results = await runCypherQuery.call(this, session, createQuery, preparedCreateParams, true, itemIndex);
+					this.logger.debug(`[Create Booking] Query executed, results count: ${results.length}`);
 
-					// Process results
+					// Process results (Same as before)
 					results.forEach((record) => {
-						// record.json contains the object representation of the Neo4j record
-						// The query returns 'booking', which contains the properties map {.*}
-						const bookingProperties = record.json.booking as IDataObject | undefined; // Changed bk to booking
-						// Ensure bookingProperties is an object
+						const bookingProperties = record.json.booking as IDataObject | undefined;
 						if (bookingProperties && typeof bookingProperties === 'object') {
-							// Assign the properties object directly to json
-							returnData.push({ json: bookingProperties, pairedItem: { item: itemIndex } }); // Use bookingProperties directly
+							returnData.push({ json: bookingProperties, pairedItem: { item: itemIndex } });
 						} else {
-							// Handle case where booking node might not be returned as expected
 							this.logger.warn(`[Create Booking] Booking properties not found or invalid in query result for item ${itemIndex}`, { recordData: record.json });
-							// Optionally throw an error or return an empty object
 							returnData.push({ json: { error: 'Booking creation confirmed but node data retrieval failed.' }, pairedItem: { item: itemIndex } });
 						}
 					});
 
 				} catch (error) {
+					// Item-level error handling (Same as before)
 					if (this.continueOnFail()) {
-						returnData.push({ json: { error: error.message }, pairedItem: { item: itemIndex } });
+						// Ensure error is an instance of Error to access message
+						const message = error instanceof Error ? error.message : String(error);
+						returnData.push({ json: { error: message }, pairedItem: { item: itemIndex } });
 						continue;
 					}
-					throw error;
+					// If not continuing on fail, parse and re-throw
+                	if (error instanceof NodeOperationError) { throw error; }
+					// Add itemIndex to the error before parsing if possible
+					(error as any).itemIndex = itemIndex;
+					throw parseNeo4jError(node, error); // Parse other errors
 				}
 			}
 
 		} catch (error) {
-			// Handle Node-Level Errors
+			// Node-Level Error Handling (Same as before)
 			if (this.continueOnFail()) {
-				returnData.push({ json: { error: (error as Error).message } }); // Ensure error has message
-				// Return data even on fail if continueOnFail is true
-				// The return statement was missing here in the original logic from Neo4jCreateUser
+				const message = error instanceof Error ? error.message : String(error);
+				returnData.push({ json: { error: message } });
 				return this.prepareOutputData(returnData);
 			}
-			// If not continuing on fail, parse and throw the error
-			if (error instanceof NodeOperationError) { throw error; } // Re-throw known errors
-			throw parseNeo4jError(node, error); // Parse other errors
+			if (error instanceof NodeOperationError) { throw error; }
+			throw parseNeo4jError(node, error);
 		} finally {
-			// 11. Close Session and Driver
+			// Close Session and Driver (Same as before)
 			if (session) {
 				try {
 					await session.close();
@@ -346,6 +353,7 @@ export class Neo4jCreateBooking implements INodeType {
 			}
 		}
 
-		return [returnData];
+		return [returnData]; // Return as INodeExecutionData[][]
 	}
 }
+
