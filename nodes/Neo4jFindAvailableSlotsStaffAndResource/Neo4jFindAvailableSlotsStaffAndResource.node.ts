@@ -25,6 +25,11 @@ import {
 	getIsoWeekday,
 } from '../neo4j/helpers/timeUtils';
 
+// --- 導入輔助函式 ---
+import {
+	checkStaffAndResourceAvailability,
+} from '../neo4j/helpers/availabilityChecks/checkStaffAndResource';
+
 // --- Node Class Definition ---
 export class Neo4jFindAvailableSlotsStaffAndResource implements INodeType {
 

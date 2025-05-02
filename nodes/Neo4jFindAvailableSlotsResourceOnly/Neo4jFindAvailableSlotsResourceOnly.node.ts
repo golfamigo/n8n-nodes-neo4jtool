@@ -22,12 +22,12 @@ import {
 // --- 導入時間處理工具函數 ---
 import {
 	normalizeDateTime,
-	// generateTimeSlotsWithBusinessHours, // Removed
-	getIsoWeekday, // Keep for potential logging
+	getIsoWeekday,
 } from '../neo4j/helpers/timeUtils';
 
-// Removed resourceUtils import as the logic will be inline in Cypher
-// Removed duplicate import: import neo4j from 'neo4j-driver';
+// --- 導入可用性檢查輔助函式 ---
+import { checkTimeOnlyAvailability } from '../neo4j/helpers/availabilityChecks/checkTimeOnly';
+import { checkResourceOnlyAvailability } from '../neo4j/helpers/availabilityChecks/checkResourceOnly';
 
 // --- Node Class Definition ---
 export class Neo4jFindAvailableSlotsResourceOnly implements INodeType {
@@ -279,95 +279,75 @@ export class Neo4jFindAvailableSlotsResourceOnly implements INodeType {
 				throw parseNeo4jError(node, preQueryError, '獲取商家/服務/資源類型信息失敗。');
 			}
 
-			// 5. 使用高效 Cypher 查詢直接生成和過濾時段
-			const efficientQuery = `
-				// 輸入參數
-				WITH datetime($startDateTime) AS rangeStart,
-					 datetime($endDateTime) AS rangeEnd,
-					 $intervalMinutes AS intervalMinutes,
-					 $serviceDuration AS serviceDurationMinutes,
-					 $businessId AS businessId,
-					 $requiredResourceTypeId AS resourceTypeId,
-					 $requiredResourceCapacity AS resourceCapacity
-
-				// 1. 生成時間序列
-				WITH rangeStart, rangeEnd, intervalMinutes, serviceDurationMinutes, businessId, resourceTypeId, resourceCapacity,
-					 range(0, duration.between(rangeStart, rangeEnd).minutes / intervalMinutes) AS indices
-				UNWIND indices AS index
-				WITH rangeStart + duration({minutes: index * intervalMinutes}) AS slotStart,
-					 duration({minutes: serviceDurationMinutes}) AS serviceDuration,
-					 businessId, resourceTypeId, resourceCapacity
-
-				// 2. 計算結束時間和星期幾
-				WITH slotStart, serviceDuration, slotStart + serviceDuration AS slotEnd,
-					 date(slotStart).dayOfWeek AS slotDayOfWeek,
-					 businessId, resourceTypeId, resourceCapacity
-
-				// 3. 匹配商家和資源類型
-				MATCH (b:Business {business_id: businessId})
-				MATCH (rt:ResourceType {type_id: resourceTypeId, business_id: businessId}) // Ensure resource type belongs to business
-
-				// 4. 檢查營業時間
-				WHERE EXISTS {
-					MATCH (b)-[:HAS_HOURS]->(bh:BusinessHours)
-					WHERE bh.day_of_week = slotDayOfWeek
-					AND time(bh.start_time) <= time(slotStart)
-					AND time(bh.end_time) >= time(slotEnd)
-				}
-
-				// 5. 檢查資源可用性 (Corrected conflict check)
-				AND rt.total_capacity >= resourceCapacity // Initial capacity check
-				AND NOT EXISTS { // Check for conflicting resource usage
-					MATCH (existing:Booking)-[:USES_RESOURCE]->(ru:ResourceUsage)-[:OF_TYPE]->(rt)
-					MATCH (existing)-[:FOR_SERVICE]->(s_existing:Service) // Get the service of the existing booking
-					WHERE existing.status <> 'Cancelled'
-					  AND existing.booking_time < slotEnd
-					  AND existing.booking_time + duration({minutes: s_existing.duration_minutes}) > slotStart // Use existing booking's duration
-					WITH rt, resourceCapacity, sum(ru.quantity) AS usedAtSlot
-					WHERE rt.total_capacity < usedAtSlot + resourceCapacity // Check if adding this booking exceeds capacity
-				}
-
-				// Removed redundant step 6 (TimeOnly conflict check)
-
-				// 6. 返回可用時段 (ISO 字符串) - Step number adjusted
-				RETURN toString(slotStart) AS availableSlot
-				ORDER BY slotStart
+			// 5. 使用輔助函式生成可用時段
+			const slotQuery = `
+				// 生成時間範圍內的所有潛在時段
+				WITH datetime($startDateTime) as rangeStart,
+					 datetime($endDateTime) as rangeEnd,
+					 $intervalMinutes as intervalMinutes
+				
+				// 生成索引序列，然後生成所有潛在時段
+				WITH rangeStart, rangeEnd, intervalMinutes,
+					 range(0, duration.between(rangeStart, rangeEnd).minutes / intervalMinutes) as indices
+				UNWIND indices as index
+				WITH rangeStart + duration({minutes: index * intervalMinutes}) as slotTime
+				
+				// 返回可能的時段
+				RETURN toString(slotTime) as potentialSlot
+				ORDER BY slotTime
 			`;
 
-			const efficientParams: IDataObject = {
-				businessId,
-				// serviceId is not directly needed in the query as duration is passed
+			const slotParams: IDataObject = {
 				startDateTime: normalizedStartDateTime,
 				endDateTime: normalizedEndDateTime,
-				intervalMinutes: neo4j.int(intervalMinutes),
-				serviceDuration: neo4j.int(durationMinutes), // Pass duration from preQuery
-				requiredResourceTypeId,
-				requiredResourceCapacity: neo4j.int(requiredResourceCapacity),
+				intervalMinutes,
 			};
 
 			try {
-				// 6. 執行高效查詢
-				this.logger.debug('執行高效 ResourceOnly 可用時段查詢', efficientParams);
-
 				if (!session) {
 					throw new NodeOperationError(node, 'Neo4j 會話未初始化', { itemIndex });
 				}
 
-				const availableSlotsResults = await runCypherQuery.call(
+				const potentialSlotsResults = await runCypherQuery.call(
 					this,
 					session,
-					efficientQuery,
-					efficientParams,
-					false, // Read query
+					slotQuery,
+					slotParams,
+					false,
 					itemIndex
 				);
 
-				// 7. 從查詢結果中提取可用時段
-				const availableSlots: string[] = availableSlotsResults.map(record => record.json.availableSlot as string);
+				// 獲取所有潛在時段
+				const potentialSlots = potentialSlotsResults.map(record => record.json.potentialSlot as string);
+				const availableSlots: string[] = [];
+
+				// 針對每個潛在時段，使用 checkResourceOnlyAvailability 輔助函式檢查是否可用
+				for (const slot of potentialSlots) {
+					try {
+						await checkResourceOnlyAvailability(
+							session,
+							{
+								businessId,
+								serviceId,
+								resourceTypeId: requiredResourceTypeId,
+								resourceQuantity: requiredResourceCapacity,
+								bookingTime: slot,
+								itemIndex,
+								node: this,
+							},
+							this
+						);
+						// 如果沒有拋出錯誤，則表示時段可用
+						availableSlots.push(slot);
+					} catch (error) {
+						// 時段不可用，繼續檢查下一個
+						this.logger.debug(`時段 ${slot} 不可用: ${(error as Error).message}`);
+					}
+				}
 
 				this.logger.debug(`找到 ${availableSlots.length} 個可用時段`);
 
-				// 8. 準備結果數據
+				// 準備結果數據
 				returnData.push({
 					json: {
 						availableSlots,
@@ -388,28 +368,30 @@ export class Neo4jFindAvailableSlotsResourceOnly implements INodeType {
 				throw parseNeo4jError(node, queryError, '檢查時段可用性失敗。');
 			}
 
-			// 9. 返回結果
-			return this.prepareOutputData(returnData); // Moved outside the try-catch for query execution
+			// 返回結果
+			return this.prepareOutputData(returnData);
 
 		} catch (error) {
-			// 10. 處理節點級錯誤
+			// 處理節點級錯誤
 			if (error instanceof NodeOperationError) { throw error; }
 			(error as any).itemIndex = itemIndex;
 			throw parseNeo4jError(node, error);
 		} finally {
-			// 11. 關閉會話和驅動
+			// 關閉會話和驅動
 			if (session) {
 				try {
 					await session.close();
+					this.logger.debug('成功關閉 Neo4j 會話');
 				} catch (e) {
-					this.logger.error('Error closing Neo4j session:', e);
+					this.logger.error('關閉 Neo4j 會話時出錯:', e);
 				}
 			}
 			if (driver) {
 				try {
 					await driver.close();
+					this.logger.debug('成功關閉 Neo4j 驅動');
 				} catch (e) {
-					this.logger.error('Error closing Neo4j driver:', e);
+					this.logger.error('關閉 Neo4j 驅動時出錯:', e);
 				}
 			}
 		}

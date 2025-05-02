@@ -1,6 +1,6 @@
 {
   "name": "n8n-nodes-neo4jtool",
-  "version": "0.1.413",
+  "version": "0.1.414",
   "description": "a Neo4j node for n8n workflows",
   "keywords": [
     "n8n-community-node-package",
@@ -30,6 +30,7 @@
     "format": "prettier nodes credentials --write",
     "lint": "eslint nodes credentials package.json",
     "lintfix": "eslint nodes credentials package.json --fix",
+    "test": "jest",
     "prepublishOnly": "pnpm build && pnpm lint -c .eslintrc.prepublish.js nodes credentials package.json",
     "dev:n8n": "cross-env N8N_USER_FOLDER=\"E:\\gitHub\\n8n-nodes-neo4jtool\\.n8n-dev-data\" DB_TYPE='sqlite' N8N_HOST='127.0.0.1' N8N_LOG_FILE='./n8n-debug.log' n8n start"
   },
@@ -85,15 +86,18 @@
     ]
   },
   "devDependencies": {
+    "@types/jest": "^29.5.14",
     "@types/node": "^22.14.1",
     "@typescript-eslint/parser": "^7.15.0",
     "cross-env": "^7.0.3",
     "eslint": "^8.56.0",
     "eslint-plugin-n8n-nodes-base": "^1.16.1",
     "gulp": "^4.0.2",
+    "jest": "^29.7.0",
     "n8n": "^1.88.0",
     "prettier": "^3.3.2",
     "rimraf": "^5.0.10",
+    "ts-jest": "^29.3.2",
     "typescript": "^5.5.3"
   },
   "peerDependencies": {

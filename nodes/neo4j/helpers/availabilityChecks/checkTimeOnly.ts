@@ -30,7 +30,8 @@ function checkBusinessHours(
 	const slotEndTime = slotEnd.toFormat('HH:mm:ss');
 
 	for (const range of businessHours) {
-		// Assuming range.start_time and range.end_time are 'HH:mm' or 'HH:mm:ss'
+		// Check if slot is within business hours using improved isTimeBetween
+		// that can correctly handle overnight ranges
 		if (isTimeBetween(slotStartTime, range.start_time, range.end_time, true) && // start is within or equal
 			isTimeBetween(slotEndTime, range.start_time, range.end_time, false)) { // end is strictly within
 			context.logger.debug(`[Business Hours Check] Slot ${slotStartTime}-${slotEndTime} is within ${range.start_time}-${range.end_time}`);

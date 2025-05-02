@@ -90,10 +90,12 @@ export function normalizeDateTime(timeInput: any, timezone: string = TIME_SETTIN
 
     // 處理字符串
     if (typeof timeInput === 'string') {
-      // 嘗試解析 ISO 格式
-      let dt = DateTime.fromISO(timeInput);
+      // 嘗試解析 ISO 格式 (包括帶偏移量的)
+      // Set zone to 'utc' during parsing if no offset is present, otherwise keep the offset for conversion
+      let dt = DateTime.fromISO(timeInput, { setZone: true }); // setZone: true preserves offset if present
       if (dt.isValid) {
-        return dt.toUTC().toISO();
+        // Always convert to UTC for internal consistency
+        return dt.toUTC().toISO({ suppressMilliseconds: false }); // Ensure consistent format
       }
 
       // 嘗試解析 SQL 格式
@@ -343,8 +345,6 @@ export function generateTimeSlots(
  * @param intervalMinutes 時間槽間隔 (分鐘)
  * @returns 符合營業時間的時間槽列表 (ISO 8601 UTC 字符串)
  */
-// 修正 generateTimeSlotsWithBusinessHours 函數中的 continue 問題
-// 需要重構，避免跨函數邊界使用 continue
 export function generateTimeSlotsWithBusinessHours(
   startDateTime: any,
   endDateTime: any,
@@ -404,8 +404,10 @@ export function generateTimeSlotsWithBusinessHours(
   const slots: string[] = [];
   let currentDate = DateTime.fromISO(normalizedStart).startOf('day');
   const endDt = DateTime.fromISO(normalizedEnd);
+  const loopEndDate = endDt.startOf('day'); // Compare against the start of the end day
 
-  while (currentDate < endDt) {
+  // Loop through each day from the start date up to and including the end date's start of day
+  while (currentDate <= loopEndDate) {
     const dayOfWeek = currentDate.weekday;
     const dayHours = hoursMap.get(dayOfWeek) || [];
 
@@ -441,36 +443,43 @@ export function generateTimeSlotsWithBusinessHours(
         millisecond: 0
       }).setZone('UTC');
 
-      // 調整當天的時間範圍
-        // 強制時區一致
-        const openTimeUTC = openTime.setZone('UTC');
-        const closeTimeUTC = closeTime.setZone('UTC');
-        const normalizedStartUTC = DateTime.fromISO(normalizedStart).setZone('UTC');
-        const endDtUTC = endDt.setZone('UTC');
-        let dayStart = DateTime.max(openTimeUTC, normalizedStartUTC);
-        let dayEnd = DateTime.min(closeTimeUTC, endDtUTC);
-        console.log('[SLOT] dayStart:', dayStart.toISO(), 'dayEnd:', dayEnd.toISO());
+      // Adjust the day's time range based on business hours and overall query range
+      // Ensure times are compared within the same day context or handle overnight explicitly
+      const normalizedStartUTC = DateTime.fromISO(normalizedStart).setZone('UTC');
+      const endDtUTC = endDt.setZone('UTC');
 
+      let dayStart = openTime.setZone('UTC');
+      let dayEnd = closeTime.setZone('UTC');
 
-      // 如果當天沒有有效時間範圍，跳過
-      if (dayStart >= dayEnd) {
-        continue; // 這個 continue 現在只在循環內使用
+      // Handle overnight business hours (e.g., 22:00 to 06:00)
+      if (dayEnd <= dayStart) {
+          // If business hours cross midnight, consider the end time as being on the next day
+          dayEnd = dayEnd.plus({ days: 1 });
       }
 
-      // 生成當天的時間槽
-        let slotCounter = 0;
-      let slotTime = dayStart;
-        while (slotTime <= dayEnd) { // 修正為 <= 包含邊界
-          const slotISO = slotTime.setZone('UTC').toISO();
-          if (slotISO) {
-            slots.push(slotISO);
-            console.log('[SLOT] push:', slotISO);
-          }
-          slotTime = slotTime.plus({ minutes: intervalMinutes });
-          slotCounter++;
-        }
-        console.log(`[SLOT] Generated ${slotCounter} slots for ${dayStart.toISO()} ~ ${dayEnd.toISO()}`);
-      // Removed redundant loop (lines 473-479)
+      // Calculate the intersection with the overall query range
+      const effectiveDayStart = DateTime.max(dayStart, normalizedStartUTC);
+      const effectiveDayEnd = DateTime.min(dayEnd, endDtUTC);
+
+      // console.log(`[SLOT] Day: ${currentDate.toISODate()}, Hours: ${hours.startTime}-${hours.endTime}, QueryRange: ${normalizedStartUTC.toISO()}-${endDtUTC.toISO()}, Effective: ${effectiveDayStart.toISO()}-${effectiveDayEnd.toISO()}`);
+
+      // If there's a valid time range for the current day's business hours within the query range
+      if (effectiveDayStart < effectiveDayEnd) { // Use < to ensure at least one slot is possible
+         // Generate slots starting from effectiveDayStart
+         let slotTime = effectiveDayStart;
+         while (slotTime < effectiveDayEnd) { // Loop until the effective end time (exclusive)
+           const slotISO = slotTime.toUTC().toISO({ suppressMilliseconds: false }); // Ensure UTC output and consistent format
+           if (slotISO) {
+             // Add slot if it's not already present (shouldn't be needed with correct logic, but as a safeguard)
+             if (!slots.includes(slotISO)) {
+                slots.push(slotISO);
+                // console.log('[SLOT] push:', slotISO);
+             }
+           }
+           slotTime = slotTime.plus({ minutes: intervalMinutes });
+         }
+         // console.log(`[SLOT] Generated slots for ${effectiveDayStart.toISO()} ~ ${effectiveDayEnd.toISO()}`);
+      }
     }
 
     // 移至下一天
@@ -532,15 +541,29 @@ export function isSlotAvailableWithinBusinessHours(
  * @returns boolean
  */
 export function isTimeBetween(t1: string, start: string, end: string, inclusiveEnd: boolean = false): boolean {
-	// Basic string comparison works for HH:MM:SS format
-	if (inclusiveEnd) {
-		return t1 >= start && t1 <= end;
-	} else {
-		// Special case: If end time is '00:00:00', it represents the end of the day (24:00).
-        // However, direct comparison '< 00:00:00' won't work as expected.
-        // If end is midnight, any time before it is considered valid.
-        // This simple string comparison might not handle overnight ranges correctly without more context.
-        // Assuming standard day ranges for now.
-		return t1 >= start && t1 < end;
-	}
+    // 規範化輸入時間格式，確保格式一致
+    const time = normalizeTimeOnly(t1) || '';
+    const startTime = normalizeTimeOnly(start) || '';
+    const endTime = normalizeTimeOnly(end) || '';
+
+    // 檢查是否跨午夜的時間範圍 (end < start 表示跨午夜)
+    const isOvernightRange = endTime < startTime && endTime !== '00:00:00';
+
+    // 處理特殊情況：結束時間為午夜 '00:00:00'
+    const isEndMidnight = endTime === '00:00:00';
+
+    // 分情況處理時間檢查
+    if (isOvernightRange) {
+        // 跨午夜情況: 時間在開始時間之後 或 時間在結束時間之前
+        return time >= startTime || (inclusiveEnd ? time <= endTime : time < endTime);
+    } else if (isEndMidnight) {
+        // 午夜結束情況: 午夜視為下一天的開始，因此時間必須在開始時間之後
+        // If inclusiveEnd is true, any time is valid if start is 00:00:00 and end is 00:00:00 (full day)
+        if (inclusiveEnd && startTime === '00:00:00') return true;
+        // Otherwise, check if time is >= start time
+        return time >= startTime;
+    } else {
+        // 正常情況: 時間在開始和結束之間
+        return time >= startTime && (inclusiveEnd ? time <= endTime : time < endTime);
+    }
 }

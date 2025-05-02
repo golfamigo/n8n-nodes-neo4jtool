@@ -17,7 +17,7 @@ export interface StaffOnlyCheckParams {
 	customerId?: string; // Optional for customer conflict check
 }
 
-// Helper function to check staff availability rules (copied from checkStaffAndResource draft)
+// Helper function to check staff availability rules
 function checkStaffAvailabilityRules(
 	slotStart: DateTime,
 	slotEnd: DateTime,
@@ -41,19 +41,24 @@ function checkStaffAvailabilityRules(
 				hasBlockingException = true;
 				break; // Full day block overrides everything
 			} else if (rule.start_time && rule.end_time) {
-				// Check if slot is within a positive exception window
-				if (isTimeBetween(slotStartTime, rule.start_time, rule.end_time, true) &&
-					isTimeBetween(slotEndTime, rule.start_time, rule.end_time, false) ||
-					(isTimeBetween(slotStartTime, rule.start_time, rule.end_time, true) && slotEndTime === rule.end_time)) {
+				// Check if slot is within a positive exception window using improved isTimeBetween
+				// that can correctly handle overnight ranges
+				const startWithinException = isTimeBetween(slotStartTime, rule.start_time, rule.end_time, true);
+				const endWithinException = isTimeBetween(slotEndTime, rule.start_time, rule.end_time, false);
+				const endsAtClosing = slotEndTime === rule.end_time;
+				
+				if ((startWithinException && endWithinException) || (startWithinException && endsAtClosing)) {
 					context.logger.debug(`[Staff Availability Check] Slot covered by positive exception: ${rule.start_time}-${rule.end_time}`);
 					coveredByPositiveException = true;
 				}
 			}
 		} else if (rule.type === 'SCHEDULE' && rule.start_time && rule.end_time) {
-			// Check if slot is within a schedule window
-			if (isTimeBetween(slotStartTime, rule.start_time, rule.end_time, true) &&
-				isTimeBetween(slotEndTime, rule.start_time, rule.end_time, false) ||
-				(isTimeBetween(slotStartTime, rule.start_time, rule.end_time, true) && slotEndTime === rule.end_time)) {
+			// Check if slot is within a schedule window using improved isTimeBetween
+			const startWithinSchedule = isTimeBetween(slotStartTime, rule.start_time, rule.end_time, true);
+			const endWithinSchedule = isTimeBetween(slotEndTime, rule.start_time, rule.end_time, false);
+			const endsAtClosing = slotEndTime === rule.end_time;
+			
+			if ((startWithinSchedule && endWithinSchedule) || (startWithinSchedule && endsAtClosing)) {
 				context.logger.debug(`[Staff Availability Check] Slot covered by schedule: ${rule.start_time}-${rule.end_time}`);
 				coveredBySchedule = true;
 			}

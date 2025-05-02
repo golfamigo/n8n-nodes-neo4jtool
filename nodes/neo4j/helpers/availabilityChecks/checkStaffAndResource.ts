@@ -25,22 +25,30 @@ function checkStaffAvailabilityRules(
 
 	for (const rule of availabilityRules) {
 		if (rule.type === 'EXCEPTION' && rule.date === slotDate) {
+			// Check for blocking exception (handle potential undefined end_time)
 			if (rule.start_time === '00:00:00' && rule.end_time && rule.end_time >= '23:59:00') {
 				context.logger.debug(`[Staff Availability Check] Blocking exception found for date ${slotDate}`);
 				hasBlockingException = true;
-				break;
+				break; // Full day block overrides everything
 			} else if (rule.start_time && rule.end_time) {
-				if (isTimeBetween(slotStartTime, rule.start_time, rule.end_time, true) &&
-					isTimeBetween(slotEndTime, rule.start_time, rule.end_time, false) ||
-					(isTimeBetween(slotStartTime, rule.start_time, rule.end_time, true) && slotEndTime === rule.end_time)) {
+				// Check if slot is within a positive exception window using improved isTimeBetween
+				// that can correctly handle overnight ranges
+				const startWithinException = isTimeBetween(slotStartTime, rule.start_time, rule.end_time, true);
+				const endWithinException = isTimeBetween(slotEndTime, rule.start_time, rule.end_time, false);
+				const endsAtClosing = slotEndTime === rule.end_time;
+				
+				if ((startWithinException && endWithinException) || (startWithinException && endsAtClosing)) {
 					context.logger.debug(`[Staff Availability Check] Slot covered by positive exception: ${rule.start_time}-${rule.end_time}`);
 					coveredByPositiveException = true;
 				}
 			}
 		} else if (rule.type === 'SCHEDULE' && rule.start_time && rule.end_time) {
-			if (isTimeBetween(slotStartTime, rule.start_time, rule.end_time, true) &&
-				isTimeBetween(slotEndTime, rule.start_time, rule.end_time, false) ||
-				(isTimeBetween(slotStartTime, rule.start_time, rule.end_time, true) && slotEndTime === rule.end_time)) {
+			// Check if slot is within a schedule window using improved isTimeBetween
+			const startWithinSchedule = isTimeBetween(slotStartTime, rule.start_time, rule.end_time, true);
+			const endWithinSchedule = isTimeBetween(slotEndTime, rule.start_time, rule.end_time, false);
+			const endsAtClosing = slotEndTime === rule.end_time;
+			
+			if ((startWithinSchedule && endWithinSchedule) || (startWithinSchedule && endsAtClosing)) {
 				context.logger.debug(`[Staff Availability Check] Slot covered by schedule: ${rule.start_time}-${rule.end_time}`);
 				coveredBySchedule = true;
 			}
@@ -50,6 +58,8 @@ function checkStaffAvailabilityRules(
 	if (hasBlockingException) {
 		isAvailable = false;
 	} else {
+		// Available if covered by a positive exception OR (covered by schedule AND no specific exception applies for this time)
+		// Simplified: Available if covered by positive exception or schedule (as positive exception takes precedence if defined)
 		isAvailable = coveredByPositiveException || coveredBySchedule;
 	}
 
@@ -57,6 +67,45 @@ function checkStaffAvailabilityRules(
 	return isAvailable;
 }
 
+// Helper function to validate resource type ID
+function isValidResourceTypeId(resourceTypeId: string | undefined | null): boolean {
+	// Basic check for existence
+	if (typeof resourceTypeId !== 'string' || resourceTypeId.trim() === '') {
+		return false;
+	}
+	
+	// Basic UUID format check (if system uses UUID)
+	const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+	return uuidPattern.test(resourceTypeId);
+}
+
+// Helper function to prepare query parameters with safety checks
+function prepareResourceAvailabilityParams(
+	resourceTypeId: string,
+	serviceDuration: number,
+	resourceQuantity: number,
+	slotStart: DateTime,
+	slotEnd: DateTime,
+): { resourceTypeId: string; slotStart: string; slotEnd: string; } {
+	// Add parameter validation
+	if (serviceDuration <= 0 || serviceDuration > 1440) { // 1440 minutes = 24 hours
+		throw new Error(`Service duration ${serviceDuration} is outside valid range (1-1440)`);
+	}
+	
+	if (resourceQuantity <= 0 || resourceQuantity > 1000) { // Set reasonable upper limit
+		throw new Error(`Resource quantity ${resourceQuantity} is outside valid range (1-1000)`);
+	}
+	
+	if (!isValidResourceTypeId(resourceTypeId)) {
+		throw new Error(`Invalid resource type ID: ${resourceTypeId}`);
+	}
+	
+	return {
+		resourceTypeId,
+		slotStart: slotStart.toISO(),
+		slotEnd: slotEnd.toISO(),
+	};
+}
 
 export interface StaffAndResourceCheckParams {
 	businessId: string;
@@ -171,7 +220,9 @@ export async function checkStaffAndResourceAvailability(
 	// --- 4. Perform ResourceOnly Specific Checks ---
 	// 4a. Get Resource Type Capacity
 	const capacityQuery = `
-        MATCH (rt:ResourceType {type_id: $resourceTypeId, business_id: $businessId})
+        MATCH (rt:ResourceType {type_id: $resourceTypeId})
+        WHERE rt.business_id = $businessId 
+          OR EXISTS((rt)-[:BELONGS_TO]->(:Business {business_id: $businessId}))
         RETURN rt.total_capacity AS totalCapacity
     `;
 	const capacityParams = { resourceTypeId: params.resourceTypeId, businessId: params.businessId };
@@ -186,6 +237,20 @@ export async function checkStaffAndResourceAvailability(
 	context.logger.debug(`[StaffAndResource Check v2] Resource Type ${params.resourceTypeId} total capacity: ${totalCapacity}`);
 
 	// 4b. Calculate Used Resource Quantity in Slot
+	// Use improved parameter preparation with validation
+	let queryParams;
+	try {
+		queryParams = prepareResourceAvailabilityParams(
+			params.resourceTypeId,
+			serviceDuration,
+			params.resourceQuantity,
+			slotStart,
+			slotEnd
+		);
+	} catch (error) {
+		throw new NodeOperationError(params.node.getNode(), `Parameter validation error: ${error instanceof Error ? error.message : 'Unknown error'}`, { itemIndex: params.itemIndex });
+	}
+	
 	const usedQuantityQuery = `
         MATCH (existing:Booking)-[:USES_RESOURCE]->(ru:ResourceUsage)-[:OF_TYPE]->(:ResourceType {type_id: $resourceTypeId})
         MATCH (existing)-[:FOR_SERVICE]->(s_existing:Service)
@@ -194,12 +259,7 @@ export async function checkStaffAndResourceAvailability(
           AND existing.booking_time + duration({minutes: s_existing.duration_minutes}) > datetime($slotStart)
         RETURN sum(coalesce(ru.quantity, 0)) AS currentlyUsed
     `;
-	const usedQuantityParams = {
-		resourceTypeId: params.resourceTypeId,
-		slotStart: slotStart.toISO(),
-		slotEnd: slotEnd.toISO(),
-	};
-	const usedQuantityResults = await runCypherQuery.call(context, session, usedQuantityQuery, usedQuantityParams, false, params.itemIndex);
+	const usedQuantityResults = await runCypherQuery.call(context, session, usedQuantityQuery, queryParams, false, params.itemIndex);
 	const currentlyUsed = convertNeo4jValueToJs(usedQuantityResults[0]?.json.currentlyUsed) || 0;
 	context.logger.debug(`[StaffAndResource Check v2] Resource Type ${params.resourceTypeId} currently used at slot: ${currentlyUsed}`);
 

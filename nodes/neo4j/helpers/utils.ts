@@ -23,6 +23,7 @@ import type {
 	LocalTime,
 } from 'neo4j-driver';
 import neo4j, { Neo4jError } from 'neo4j-driver';
+import { DateTime } from 'luxon'; // Import DateTime from luxon
 
 import type { CypherRunner } from './interfaces';
 
@@ -185,7 +186,13 @@ export function convertNeo4jValueToJs(value: any): any {
 	}
 	if (neo4j.isInt(value)) {
 		const neo4jInt = value as Neo4jInteger;
-		return neo4jInt.inSafeRange() ? neo4jInt.toNumber() : neo4jInt.toString();
+		// 改進整數處理，保持一致的返回類型
+		if (neo4jInt.inSafeRange()) {
+			return neo4jInt.toNumber();
+		} else {
+			// 對於超出範圍的整數，返回標記的字符串
+			return `int:${neo4jInt.toString()}`; // 標記為整數字符串
+		}
 	}
 	if (value instanceof neo4j.types.Node) {
 		const node = value as Neo4jNode;
@@ -206,13 +213,21 @@ export function convertNeo4jValueToJs(value: any): any {
 		};
 	}
 	if (value instanceof neo4j.types.Path) {
-		return value.segments.map(segment => ({
-			start: convertNeo4jValueToJs(segment.start),
-			relationship: convertNeo4jValueToJs(segment.relationship),
-			end: convertNeo4jValueToJs(segment.end),
-		}));
+		// 改進複雜結構處理
+		return {
+			segments: value.segments.map(segment => ({
+				start: convertNeo4jValueToJs(segment.start),
+				relationship: convertNeo4jValueToJs(segment.relationship),
+				end: convertNeo4jValueToJs(segment.end),
+			})),
+			length: value.length,
+			// 可以添加更多有用信息，例如 start 和 end 節點
+			start: convertNeo4jValueToJs(value.start),
+			end: convertNeo4jValueToJs(value.end),
+		};
 	}
 	if (value instanceof neo4j.types.PathSegment) {
+		// PathSegment 通常在 Path 內部處理，但如果單獨出現也轉換
 		return {
 			start: convertNeo4jValueToJs(value.start),
 			relationship: convertNeo4jValueToJs(value.relationship),
@@ -266,12 +281,25 @@ export function parseNeo4jError(node: INode | null, error: any, operation?: stri
 	let message = 'Neo4j Error';
 	let description = error instanceof Error ? error.message : 'An unknown error occurred';
 	const code = error?.code;
+	const itemIndex = (error as any).itemIndex !== undefined ? (error as any).itemIndex : undefined; // 確保 itemIndex 正確傳遞
 
 	if (error instanceof Neo4jError) {
-		message = error.message.split('\n')[0];
-		description = error.message;
+		message = error.message.split('\n')[0]; // Use first line as concise message
+		description = error.message; // Full message as description
 
-		if (code === 'Neo.ClientError.Security.Unauthorized' || message.includes('Authentication failure')) {
+		// 添加更多錯誤代碼處理 (來自說明書)
+		if (code?.startsWith('Neo.TransientError.Transaction.')) {
+			message = 'Transaction error (temporary)';
+			description = `暫時性交易錯誤，可重試操作。詳情: ${error.message}`;
+		} else if (code?.startsWith('Neo.TransientError.Cluster.')) {
+			message = 'Cluster synchronization error';
+			description = `叢集同步錯誤，請稍後重試。詳情: ${error.message}`;
+		} else if (code?.startsWith('Neo.ClientError.Transaction.')) {
+			message = 'Transaction constraint error';
+			description = `交易約束錯誤，請檢查數據一致性。詳情: ${error.message}`;
+		}
+		// 保留原有錯誤處理
+		else if (code === 'Neo.ClientError.Security.Unauthorized' || message.includes('Authentication failure')) {
 			message = 'Authentication failed';
 			description = 'Please check your Neo4j credentials (URI, username, password).';
 		} else if (code === 'Neo.ClientError.Security.Forbidden') {
@@ -298,13 +326,65 @@ export function parseNeo4jError(node: INode | null, error: any, operation?: stri
 		}
 	}
 
-	const errorNode = node ?? { name: 'Neo4jNode', type: 'N8nNeo4j', typeVersion: 1, position: [0, 0], parameters: {}, credentials: {} };
+	const errorNode = node ?? { id: 'default-neo4j-node', name: 'Neo4jNode', type: 'N8nNeo4j', typeVersion: 1, position: [0, 0], parameters: {}, credentials: {} }; // Added default id
 
-	return new NodeOperationError(errorNode, description, {
-		message,
-		description: error instanceof Error ? error.message : description,
-		itemIndex: (error as any).itemIndex,
+	// Ensure 'description' holds the detailed message/stack, and 'message' holds the concise summary.
+	const finalDescription = error instanceof Error ? (error.stack || error.message) : description;
+	const finalContextMessage = message; // 'message' variable holds the concise summary determined above
+
+	return new NodeOperationError(errorNode, finalDescription, { // Pass detailed description as main message
+		message: finalContextMessage, // Pass concise summary to context
+		// description: finalDescription, // No need to duplicate description in context
+		itemIndex: itemIndex,
 	});
+}
+
+// --- 新增輔助函數 (來自說明書) ---
+export function prepareQueryParams(parameters: IDataObject): IDataObject {
+  const preparedParams: IDataObject = {};
+
+  for (const [key, value] of Object.entries(parameters)) {
+    if (value === null || value === undefined) {
+      preparedParams[key] = null;
+      continue;
+    }
+
+    // 處理不同類型的參數
+    if (typeof value === 'number') {
+      // 使用安全整數檢查
+      if (Number.isInteger(value) && Math.abs(value) <= Number.MAX_SAFE_INTEGER) {
+         preparedParams[key] = neo4j.int(value);
+      } else {
+         // 非安全整數或非整數數值保持不變 (Neo4j 驅動程序可以處理浮點數)
+         preparedParams[key] = value;
+      }
+    } else if (value instanceof Date) {
+      // 轉換 JS Date 為 Neo4j DateTime
+      preparedParams[key] = neo4j.types.DateTime.fromStandardDate(value);
+    } else if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})?$/.test(value)) {
+      // 嘗試解析 ISO 8601 日期時間字符串
+      try {
+        // 使用 Luxon 解析 ISO 字符串以保留 UTC 或偏移量
+        const dt = DateTime.fromISO(value, { setZone: true });
+        if (dt.isValid) {
+           // 轉換為 Neo4j DateTime
+           preparedParams[key] = new neo4j.types.DateTime(
+             dt.year, dt.month, dt.day,
+             dt.hour, dt.minute, dt.second, dt.millisecond * 1_000_000, // nanoseconds
+             dt.offset * 60 // timezone offset in seconds
+           );
+        } else {
+           preparedParams[key] = value; // 解析失敗則保持原始值
+        }
+      } catch (e) {
+        preparedParams[key] = value; // 轉換失敗則保持原始值
+      }
+    } else {
+      preparedParams[key] = value; // 其他類型保持不變
+    }
+  }
+
+  return preparedParams;
 }
 
 
@@ -319,21 +399,22 @@ export const runCypherQuery: CypherRunner = async function (
 	itemIndex: number,
 ): Promise<INodeExecutionData[]> {
 	try {
-		// Add debug logging for query and parameters
+		// 添加參數預處理 (來自說明書)
+		const preparedParams = prepareQueryParams(parameters);
+
+		// Add debug logging for query and PREPARED parameters
 		this.logger.debug(`Running Cypher query: ${query}`);
-		this.logger.debug(`With parameters: ${JSON.stringify(parameters)}`);
-		
-		// Specifically log booking_mode if present
-		if (parameters.booking_mode !== undefined) {
-			this.logger.info(`booking_mode parameter value: ${parameters.booking_mode}`);
+		this.logger.debug(`With prepared parameters: ${JSON.stringify(preparedParams)}`); // Log prepared params
+
+		// Specifically log booking_mode if present in prepared params
+		if (preparedParams.booking_mode !== undefined) {
+			this.logger.info(`booking_mode parameter value: ${preparedParams.booking_mode}`);
 		}
-		
+
 		let result: QueryResult;
 		const transactionFunction = async (tx: ManagedTransaction) => {
-			// Potentially convert JS types to Neo4j driver types here if needed before running
-			// e.g., convert Date objects to neo4j.Date, etc.
-			// For now, assume parameters are directly usable or driver handles conversion.
-			return await tx.run(query, parameters);
+			// 使用處理後的參數
+			return await tx.run(query, preparedParams);
 		};
 
 		if (isWriteQuery) {
@@ -343,7 +424,7 @@ export const runCypherQuery: CypherRunner = async function (
 		}
 
 		const executionData = wrapNeo4jResult(result.records);
-		
+
 		// Log the first result to debug booking_mode issues
 		if (executionData.length > 0 && executionData[0].json.business) {
 			this.logger.info(`Result business node: ${JSON.stringify(executionData[0].json.business)}`);

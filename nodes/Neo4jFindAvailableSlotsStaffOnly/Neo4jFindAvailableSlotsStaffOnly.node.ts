@@ -25,6 +25,10 @@ import {
 	getIsoWeekday,
 } from '../neo4j/helpers/timeUtils';
 
+// --- 導入可用性檢查輔助函式 ---
+import { checkStaffOnlyAvailability } from '../neo4j/helpers/availabilityChecks/checkStaffOnly';
+import { checkTimeOnlyAvailability } from '../neo4j/helpers/availabilityChecks/checkTimeOnly';
+
 // --- Node Class Definition ---
 export class Neo4jFindAvailableSlotsStaffOnly implements INodeType {
 
@@ -228,132 +232,81 @@ export class Neo4jFindAvailableSlotsStaffOnly implements INodeType {
 				throw parseNeo4jError(node, preQueryError, '獲取商家/服務/員工信息失敗。');
 			}
 
-			// 5. 使用高效 Cypher 查詢直接生成和過濾時段 - 修改後的查詢
-			const efficientQuery = `
-				// 輸入參數
-				WITH datetime($startDateTime) AS rangeStart,
-					 datetime($endDateTime) AS rangeEnd,
-					 $intervalMinutes AS intervalMinutes,
-					 $serviceDuration AS serviceDurationMinutes,
-					 $businessId AS businessId,
-					 $requiredStaffId AS staffId,
-					 $serviceId AS serviceId
-
-				// 1. 生成時間序列
-				WITH rangeStart, rangeEnd, intervalMinutes, serviceDurationMinutes, businessId, staffId, serviceId,
-					 range(0, duration.between(rangeStart, rangeEnd).minutes / intervalMinutes) AS indices
-				UNWIND indices AS index
-				WITH rangeStart + duration({minutes: index * intervalMinutes}) AS slotStart,
-					 duration({minutes: serviceDurationMinutes}) AS serviceDuration,
-					 businessId, staffId, serviceId
-
-				// 2. 計算結束時間和星期幾
-				WITH slotStart, serviceDuration, slotStart + serviceDuration AS slotEnd,
-					 date(slotStart) AS slotDate, date(slotStart).dayOfWeek AS slotDayOfWeek,
-					 businessId, staffId, serviceId
-
-				// 3. 匹配商家、服務和指定員工
-				MATCH (b:Business {business_id: businessId})
-				MATCH (st:Staff {staff_id: staffId})-[:WORKS_AT]->(b)
-				MATCH (s:Service {service_id: serviceId})<-[:OFFERS]-(b)
-
-				// 確認員工可以提供此服務
-				WITH slotStart, slotEnd, slotDate, slotDayOfWeek, b, st, s
-				MATCH (st)-[:CAN_PROVIDE]->(s)
-
-				// 4. 檢查營業時間
-				WITH slotStart, slotEnd, slotDate, slotDayOfWeek, b, st, s
-				MATCH (b)-[:HAS_HOURS]->(bh:BusinessHours)
-				WHERE bh.day_of_week = slotDayOfWeek
-				  AND time(bh.start_time) <= time(slotStart)
-				  AND time(bh.end_time) >= time(slotEnd)
-
-				// 5. 檢查員工可用性 - 分解為更簡單的查詢
-				WITH slotStart, slotEnd, slotDate, slotDayOfWeek, b, st, s
-
-				// 檢查常規排班
-				OPTIONAL MATCH (st)-[:HAS_AVAILABILITY]->(sched:StaffAvailability {type: 'SCHEDULE', day_of_week: slotDayOfWeek})
-				WHERE time(sched.start_time) <= time(slotStart)
-				  AND time(sched.end_time) >= time(slotEnd)
-
-				WITH slotStart, slotEnd, slotDate, slotDayOfWeek, b, st, s,
-				     CASE WHEN sched IS NOT NULL THEN true ELSE false END AS hasSchedule
-
-				// 檢查例外可用時間
-				OPTIONAL MATCH (st)-[:HAS_AVAILABILITY]->(exc:StaffAvailability {type: 'EXCEPTION', date: slotDate})
-				WHERE time(exc.start_time) <= time(slotStart)
-				  AND time(exc.end_time) >= time(slotEnd)
-
-				WITH slotStart, slotEnd, slotDate, b, st, s, hasSchedule,
-				     CASE WHEN exc IS NOT NULL THEN true ELSE false END AS hasException
-
-				// 檢查是否有全天阻塞的例外
-				OPTIONAL MATCH (st)-[:HAS_AVAILABILITY]->(blockingExc:StaffAvailability {type: 'EXCEPTION', date: slotDate})
-				WHERE time(blockingExc.start_time) = time({hour: 0, minute: 0})
-				  AND time(blockingExc.end_time) >= time({hour: 23, minute: 59})
-
-				WITH slotStart, slotEnd, b, st, s, hasSchedule, hasException,
-				     CASE WHEN blockingExc IS NOT NULL THEN true ELSE false END AS hasBlockingException
-
-				// 6. 檢查員工預約衝突
-				WITH slotStart, slotEnd, b, st, s,
-				     hasSchedule, hasException, hasBlockingException
-				OPTIONAL MATCH (bk_staff:Booking)-[:SERVED_BY]->(st)
-				WHERE bk_staff.status <> 'Cancelled'
-				  AND bk_staff.booking_time < slotEnd
-				  AND bk_staff.booking_time + duration({minutes: s.duration_minutes}) > slotStart
-
-				// 最終篩選
-				WITH slotStart, (hasSchedule OR hasException) AS isAvailable,
-				     NOT hasBlockingException AS notBlocked,
-				     bk_staff IS NULL AS noConflict
-				WHERE isAvailable AND notBlocked AND noConflict
-
-				// 7. 返回可用時段 (ISO 字符串)
-				RETURN toString(slotStart) AS availableSlot
-				ORDER BY slotStart
+			// 5. 使用輔助函式生成可用時段
+			const slotQuery = `
+				// 生成時間範圍內的所有潛在時段
+				WITH datetime($startDateTime) as rangeStart,
+					 datetime($endDateTime) as rangeEnd,
+					 $intervalMinutes as intervalMinutes
+				
+				// 生成索引序列，然後生成所有潛在時段
+				WITH rangeStart, rangeEnd, intervalMinutes,
+					 range(0, duration.between(rangeStart, rangeEnd).minutes / intervalMinutes) as indices
+				UNWIND indices as index
+				WITH rangeStart + duration({minutes: index * intervalMinutes}) as slotTime
+				
+				// 返回可能的時段
+				RETURN toString(slotTime) as potentialSlot
+				ORDER BY slotTime
 			`;
 
-			const efficientParams: IDataObject = {
-				businessId,
-				serviceId,
+			const slotParams: IDataObject = {
 				startDateTime: normalizedStartDateTime,
 				endDateTime: normalizedEndDateTime,
-				intervalMinutes: neo4j.int(intervalMinutes),
-				serviceDuration: neo4j.int(durationMinutes),
-				requiredStaffId,
+				intervalMinutes,
 			};
 
 			try {
-				// 6. 執行高效查詢
-				this.logger.debug('執行高效 StaffOnly 可用時段查詢', efficientParams);
-
 				if (!session) {
 					throw new NodeOperationError(node, 'Neo4j 會話未初始化', { itemIndex });
 				}
 
-				const availableSlotsResults = await runCypherQuery.call(
+				const potentialSlotsResults = await runCypherQuery.call(
 					this,
 					session,
-					efficientQuery,
-					efficientParams,
-					false, // Read query
+					slotQuery,
+					slotParams,
+					false,
 					itemIndex
 				);
 
-				// 7. 從查詢結果中提取可用時段
-				const availableSlots: string[] = availableSlotsResults.map(record => record.json.availableSlot as string);
+				// 獲取所有潛在時段
+				const potentialSlots = potentialSlotsResults.map(record => record.json.potentialSlot as string);
+				const availableSlots: string[] = [];
+
+				// 針對每個潛在時段，使用 checkStaffOnlyAvailability 輔助函式檢查是否可用
+				for (const slot of potentialSlots) {
+					try {
+						await checkStaffOnlyAvailability(
+							session,
+							{
+								businessId,
+								serviceId,
+								staffId: requiredStaffId,
+								bookingTime: slot,
+								itemIndex,
+								node: this,
+							},
+							this
+						);
+						// 如果沒有拋出錯誤，則表示時段可用
+						availableSlots.push(slot);
+					} catch (error) {
+						// 時段不可用，繼續檢查下一個
+						this.logger.debug(`時段 ${slot} 不可用: ${(error as Error).message}`);
+					}
+				}
 
 				this.logger.debug(`找到 ${availableSlots.length} 個可用時段`);
 
-				// 8. 準備結果數據
+				// 準備結果數據
 				returnData.push({
 					json: {
 						availableSlots,
 						mode: "StaffOnly",
 						serviceId,
 						serviceDuration: durationMinutes,
-						staffName: staffName || "未知員工", // Use name from preQuery
+						staffName: staffName || "未知員工",
 						staffId: requiredStaffId
 					},
 					pairedItem: { item: itemIndex },
@@ -364,16 +317,16 @@ export class Neo4jFindAvailableSlotsStaffOnly implements INodeType {
 				throw parseNeo4jError(node, queryError, '檢查時段可用性失敗。');
 			}
 
-			// 9. 返回結果
-			return this.prepareOutputData(returnData); // Moved outside the try-catch for query execution
+			// 返回結果
+			return this.prepareOutputData(returnData);
 
 		} catch (error) {
-			// 10. 處理節點級錯誤
+			// 處理節點級錯誤
 			if (error instanceof NodeOperationError) { throw error; }
 			(error as any).itemIndex = itemIndex;
 			throw parseNeo4jError(node, error);
 		} finally {
-			// 11. 關閉會話和驅動
+			// 關閉會話和驅動
 			if (session) {
 				try {
 					await session.close();
