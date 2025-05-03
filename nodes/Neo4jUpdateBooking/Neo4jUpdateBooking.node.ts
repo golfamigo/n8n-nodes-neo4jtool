@@ -1,5 +1,5 @@
 // ============================================================================
-// N8N Neo4j Node: Update Booking
+// N8N Neo4j Node: Update Booking (Refactored)
 // ============================================================================
 import type {
 	IExecuteFunctions,
@@ -10,38 +10,47 @@ import type {
 	ICredentialDataDecryptedObject,
 } from 'n8n-workflow';
 import { NodeOperationError } from 'n8n-workflow';
-import neo4j, { Driver, Session, auth } from 'neo4j-driver';
+import neo4j, { Driver, Session, auth, Integer as Neo4jInteger } from 'neo4j-driver';
 
-// --- IMPORTANT: Shared Utilities ---
+// --- Shared Utilities ---
 import {
 	runCypherQuery,
 	parseNeo4jError,
-} from '../neo4j/helpers/utils'; // Adjusted path relative to new location
+	prepareQueryParams, // Import prepareQueryParams
+	convertNeo4jValueToJs, // Import convertNeo4jValueToJs for processing results
+} from '../neo4j/helpers/utils';
 
-// --- 引入時間處理工具函數 ---
+// --- Time Utilities ---
 import {
 	toNeo4jDateTimeString,
-
-	// 其他時間處理函數
-	normalizeDateTime as _normalizeDateTime,
-	normalizeTimeOnly as _normalizeTimeOnly,
-	toNeo4jTimeString as _toNeo4jTimeString,
-	addMinutesToDateTime as _addMinutesToDateTime,
-	TIME_SETTINGS as _TIME_SETTINGS
 } from '../neo4j/helpers/timeUtils';
+
+// --- Availability Check Utilities ---
+import {
+	checkTimeOnlyAvailability,
+	checkResourceOnlyAvailability,
+	checkStaffOnlyAvailability,
+	checkStaffAndResourceAvailability,
+	type TimeOnlyCheckParams,
+	type ResourceOnlyCheckParams,
+	type StaffOnlyCheckParams,
+	type StaffAndResourceCheckParams,
+} from '../neo4j/helpers/availabilityChecks';
+
+// --- Resource Utilities (Potentially needed for future resource updates) ---
+// import { generateResourceUsageCreationQuery } from '../neo4j/helpers/resourceUtils';
 
 // --- Node Class Definition ---
 export class Neo4jUpdateBooking implements INodeType {
 
-	// --- Node Description for n8n UI ---
 	description: INodeTypeDescription = {
-		displayName: 'Neo4j Update Booking', // From TaskInstructions.md
-		name: 'neo4jUpdateBooking', // From TaskInstructions.md
+		displayName: 'Neo4j Update Booking',
+		name: 'neo4jUpdateBooking',
 		icon: 'file:../neo4j/neo4j.svg',
 		group: ['database'],
-		version: 1,
-		subtitle: '={{$parameter["bookingId"]}}', // Show bookingId
-		description: '根據 booking_id 更新預約資訊（例如狀態、時間、備註）。,bookingId: 要更新的預約 ID (UUID),bookingTime: 新的預約開始時間 (ISO 8601 格式, 需含時區) (可選),status: 新的預約狀態 (例如 Confirmed, Cancelled, Completed) (可選),staffId: 更新服務員工 ID (UUID) (可選, 留空以移除),notes: 新的預約備註 (可選)。', // From TaskInstructions.md
+		version: 1.1, // Incremented version for significant change
+		subtitle: '={{$parameter["bookingId"]}}',
+		description: '根據 booking_id 更新預約資訊。如果更新 bookingTime 或 staffId，會先檢查新時段/員工的可用性。bookingId: 要更新的預約 ID (UUID)。其他欄位為可選更新項。', // Updated description
 		defaults: {
 			name: 'Neo4j Update Booking',
 		},
@@ -49,30 +58,21 @@ export class Neo4jUpdateBooking implements INodeType {
 		outputs: ['main'],
 		// @ts-ignore - Workaround
 		usableAsTool: true,
-
-		// --- Credentials ---
-		credentials: [
-			{
-				name: 'neo4jApi',
-				required: true,
-			},
-		],
-
-		// --- Node Specific Input Properties ---
+		credentials: [ { name: 'neo4jApi', required: true } ],
 		properties: [
-			// Parameters from TaskInstructions.md
+			// Properties remain the same
 			{
 				displayName: 'Booking ID',
 				name: 'bookingId',
 				type: 'string',
 				required: true,
 				default: '',
-				description: '要更新的預約 ID',
+				description: '要更新的預約 ID (UUID)',
 			},
 			{
 				displayName: 'Booking Time',
 				name: 'bookingTime',
-				type: 'string',
+				type: 'string', // Kept as string for flexibility, validated internally
 				default: '',
 				description: '新的預約開始時間 (ISO 8601 格式, 需含時區) (可選)',
 			},
@@ -88,7 +88,7 @@ export class Neo4jUpdateBooking implements INodeType {
 				name: 'staffId',
 				type: 'string',
 				default: '',
-				description: '更新服務員工 ID (可選, 留空以移除)',
+				description: '更新服務員工 ID (UUID) (可選, 留空表示移除員工)',
 			},
 			{
 				displayName: 'Notes',
@@ -100,11 +100,10 @@ export class Neo4jUpdateBooking implements INodeType {
 				default: '',
 				description: '新的預約備註 (可選)',
 			},
-			// Removed is_system as obsolete
+			// Consider adding resourceTypeId and resourceQuantity if needed in the future
 		],
 	};
 
-	// --- Node Execution Logic ---
 	async execute(this: IExecuteFunctions): Promise<INodeExecutionData[][]> {
 		const items = this.getInputData();
 		const returnData: INodeExecutionData[] = [];
@@ -113,147 +112,266 @@ export class Neo4jUpdateBooking implements INodeType {
 		const node = this.getNode();
 
 		try {
-			// 1. Get Credentials
+			// 1. Get Credentials & Establish Connection (Standard)
 			const credentials = await this.getCredentials('neo4jApi') as ICredentialDataDecryptedObject;
-
-			// 2. Validate Credentials
 			if (!credentials || !credentials.host || !credentials.port || !credentials.username || typeof credentials.password === 'undefined') {
-				throw new NodeOperationError(node, 'Neo4j credentials are not fully configured or missing required fields (host, port, username, password).', { itemIndex: 0 });
+				throw new NodeOperationError(node, 'Neo4j credentials are not fully configured.', { itemIndex: 0 });
 			}
-
 			const uri = `${credentials.host}:${credentials.port}`;
 			const user = credentials.username as string;
 			const password = credentials.password as string;
 			const database = credentials.database as string || 'neo4j';
 
-			// 3. Establish Neo4j Connection
 			try {
 				driver = neo4j.driver(uri, auth.basic(user, password));
 				await driver.verifyConnectivity();
-				this.logger.debug('Neo4j driver connected successfully.');
 				session = driver.session({ database });
 				this.logger.debug(`Neo4j session opened for database: ${database}`);
 			} catch (connectionError) {
-				this.logger.error('Failed to connect to Neo4j or open session:', connectionError);
-				throw parseNeo4jError(node, connectionError, 'Failed to establish Neo4j connection or session.');
+				throw parseNeo4jError(node, connectionError, 'Failed to establish Neo4j connection.');
 			}
 
-			// 4. Loop Through Input Items
-			for (let i = 0; i < items.length; i++) {
+			// 2. Loop Through Input Items
+			for (let itemIndex = 0; itemIndex < items.length; itemIndex++) {
+				if (!session) {
+					throw new NodeOperationError(node, 'Neo4j session is not available.', { itemIndex });
+				}
 				try {
-					// 5. Get Input Parameters
-					const bookingId = this.getNodeParameter('bookingId', i, '') as string;
-					const rawBookingTime = this.getNodeParameter('bookingTime', i, '') as string;
-					const status = this.getNodeParameter('status', i, '') as string;
-					const staffId = this.getNodeParameter('staffId', i, '') as string;
-					const notes = this.getNodeParameter('notes', i, '') as string;
+					// 3. Get Input Parameters
+					const bookingId = this.getNodeParameter('bookingId', itemIndex, '') as string;
+					const rawBookingTime = this.getNodeParameter('bookingTime', itemIndex, undefined) as string | undefined; // Use undefined for optional check
+					const newStatus = this.getNodeParameter('status', itemIndex, undefined) as string | undefined;
+					const rawNewStaffId = this.getNodeParameter('staffId', itemIndex, undefined) as string | undefined; // Undefined means "don't change staff"
+					const newNotes = this.getNodeParameter('notes', itemIndex, undefined) as string | undefined;
 
-					// 處理並規範化預約時間 (如果有提供)
-					let bookingTime: string | null = null;
+					if (!bookingId) {
+						throw new NodeOperationError(node, 'Booking ID is required.', { itemIndex });
+					}
+
+					// 4. Fetch Existing Booking Info & Related Service Details
+					const fetchQuery = `
+						MATCH (bk:Booking {booking_id: $bookingId})
+						OPTIONAL MATCH (bk)-[:AT_BUSINESS]->(b:Business)
+						OPTIONAL MATCH (bk)-[:FOR_SERVICE]->(s:Service)
+						OPTIONAL MATCH (bk)-[:SERVED_BY]->(st:Staff)
+						OPTIONAL MATCH (bk)-[:USES_RESOURCE]->(ru:ResourceUsage)-[:OF_TYPE]->(rt:ResourceType)
+						RETURN
+							bk.booking_time AS currentBookingTime,
+							bk.status AS currentStatus,
+							b.business_id AS businessId,
+							s.service_id AS serviceId,
+							s.booking_mode AS bookingMode,
+							s.duration_minutes AS serviceDuration,
+							st.staff_id AS currentStaffId,
+							rt.type_id AS currentResourceTypeId,
+							ru.quantity AS currentResourceQuantity,
+							// Fetch customer ID needed for checks
+							(MATCH (c:Customer)-[:MAKES]->(bk) RETURN c.customer_id)[0] AS customerId
+						LIMIT 1
+					`;
+					const fetchParams = { bookingId };
+					const fetchResult = await runCypherQuery.call(this, session, fetchQuery, fetchParams, false, itemIndex);
+
+					if (fetchResult.length === 0) {
+						throw new NodeOperationError(node, `Booking not found with ID: ${bookingId}`, { itemIndex });
+					}
+
+					const existingData = fetchResult[0].json;
+					const businessId = existingData.businessId as string | null;
+					const serviceId = existingData.serviceId as string | null;
+					const bookingMode = existingData.bookingMode as string | null;
+					const serviceDuration = convertNeo4jValueToJs(existingData.serviceDuration) as number | null; // Use converter for potential Neo4jInteger
+					const currentStaffId = existingData.currentStaffId as string | null;
+					const currentResourceTypeId = existingData.currentResourceTypeId as string | null;
+					const currentResourceQuantity = convertNeo4jValueToJs(existingData.currentResourceQuantity) as number | null;
+					const currentBookingTimeRaw = existingData.currentBookingTime; // Keep raw for normalization
+					const customerId = existingData.customerId as string | null; // Get customer ID
+
+					if (!businessId || !serviceId || !bookingMode || serviceDuration === null || !customerId) {
+						throw new NodeOperationError(node, `Could not retrieve essential related data (Business, Service, Booking Mode, Duration, Customer) for Booking ID: ${bookingId}`, { itemIndex });
+					}
+					const currentBookingTime = toNeo4jDateTimeString(currentBookingTimeRaw);
+					if (!currentBookingTime) {
+						throw new NodeOperationError(node, `Invalid current booking time stored for Booking ID: ${bookingId}`, { itemIndex });
+					}
+
+					// 5. Determine New Values & Check if Availability Check is Needed
+					let newBookingTime: string | null = null;
+					let needsAvailabilityCheck = false;
+					let finalStaffId: string | null = currentStaffId; // Start with current staff
+
 					if (rawBookingTime !== undefined && rawBookingTime !== '') {
-						bookingTime = toNeo4jDateTimeString(rawBookingTime);
-						if (!bookingTime) {
-							throw new NodeOperationError(node, `Invalid booking time format: ${rawBookingTime}. Please provide a valid ISO 8601 datetime.`, { itemIndex: i });
+						newBookingTime = toNeo4jDateTimeString(rawBookingTime);
+						if (!newBookingTime) {
+							throw new NodeOperationError(node, `Invalid new booking time format: ${rawBookingTime}. Use ISO 8601.`, { itemIndex });
+						}
+						if (newBookingTime !== currentBookingTime) {
+							needsAvailabilityCheck = true;
+						}
+					} else {
+						newBookingTime = currentBookingTime; // If not changing, use current for check
+					}
+
+					if (rawNewStaffId !== undefined) { // If staffId parameter was provided
+						finalStaffId = rawNewStaffId === '' ? null : rawNewStaffId; // Empty string means remove staff (null)
+						if (finalStaffId !== currentStaffId) {
+							needsAvailabilityCheck = true;
 						}
 					}
+					// Note: finalStaffId now holds the intended staff ID *after* the update.
 
-					// Build SET clause dynamically
+					// Prepare values for the check (use new if changed, otherwise current)
+					const timeForCheck = needsAvailabilityCheck ? (newBookingTime ?? currentBookingTime) : currentBookingTime;
+					const staffForCheck = needsAvailabilityCheck ? finalStaffId : currentStaffId;
+					// Use current resource info as this node doesn't update resources yet
+					const resourceTypeForCheck = currentResourceTypeId;
+					const resourceQuantityForCheck = currentResourceQuantity ?? 1;
+
+
+					// 6. Perform Availability Check (if needed)
+					if (needsAvailabilityCheck) {
+						this.logger.debug(`[Update Booking] Performing availability check for mode: ${bookingMode} (Time or Staff changed)`);
+						switch (bookingMode) {
+							case 'TimeOnly':
+								const timeParams: TimeOnlyCheckParams = { businessId, serviceId, bookingTime: timeForCheck, itemIndex, node: this, customerId, existingBookingId: bookingId }; // Pass existingBookingId
+								await checkTimeOnlyAvailability(session, timeParams, this);
+								break;
+							case 'ResourceOnly':
+								if (!resourceTypeForCheck) throw new NodeOperationError(this.getNode(), `Cannot check availability: Resource Type ID missing for Booking ${bookingId} in ResourceOnly mode.`, { itemIndex });
+								const resourceParams: ResourceOnlyCheckParams = { businessId, serviceId, resourceTypeId: resourceTypeForCheck, resourceQuantity: resourceQuantityForCheck, bookingTime: timeForCheck, itemIndex, node: this, customerId, existingBookingId: bookingId };
+								await checkResourceOnlyAvailability(session, resourceParams, this);
+								break;
+							case 'StaffOnly':
+								// Check if the *final* staff ID is required but null/empty
+								if (!staffForCheck) throw new NodeOperationError(this.getNode(), 'Cannot update: Staff ID is required for StaffOnly service booking mode.', { itemIndex });
+								const staffParams: StaffOnlyCheckParams = { businessId, serviceId, staffId: staffForCheck, bookingTime: timeForCheck, itemIndex, node: this, customerId, existingBookingId: bookingId };
+								await checkStaffOnlyAvailability(session, staffParams, this);
+								break;
+							case 'StaffAndResource':
+								if (!staffForCheck) throw new NodeOperationError(this.getNode(), 'Cannot update: Staff ID is required for StaffAndResource service booking mode.', { itemIndex });
+								if (!resourceTypeForCheck) throw new NodeOperationError(this.getNode(), `Cannot check availability: Resource Type ID missing for Booking ${bookingId} in StaffAndResource mode.`, { itemIndex });
+								const staffResourceParams: StaffAndResourceCheckParams = { businessId, serviceId, staffId: staffForCheck, resourceTypeId: resourceTypeForCheck, resourceQuantity: resourceQuantityForCheck, bookingTime: timeForCheck, itemIndex, node: this, customerId, existingBookingId: bookingId };
+								await checkStaffAndResourceAvailability(session, staffResourceParams, this);
+								break;
+							default:
+								throw new NodeOperationError(this.getNode(), `Unsupported booking mode: ${bookingMode}`, { itemIndex });
+						}
+						this.logger.debug(`[Update Booking] Availability check passed for potential update.`);
+					} else {
+						this.logger.debug(`[Update Booking] No time or staff change detected, skipping availability check.`);
+					}
+
+					// 7. Build Update Query
 					const setClauses: string[] = [];
-					const parameters: IDataObject = { bookingId };
+					const updateParamsRaw: IDataObject = { bookingId }; // Start with required ID
 
-					if (bookingTime !== null) {
-						setClauses.push('bk.booking_time = datetime($bookingTime)');
-						parameters.bookingTime = bookingTime;
+					// Add fields to SET clause only if they were provided and are different (or new time)
+					if (rawBookingTime !== undefined && newBookingTime !== currentBookingTime) {
+						setClauses.push('bk.booking_time = datetime($newBookingTime)');
+						updateParamsRaw.newBookingTime = newBookingTime; // Use the validated & normalized time
 					}
-					if (status !== undefined && status !== '') {
-						setClauses.push('bk.status = $status');
-						parameters.status = status;
+					if (newStatus !== undefined && newStatus !== '') {
+						setClauses.push('bk.status = $newStatus');
+						updateParamsRaw.newStatus = newStatus;
 					}
-					if (notes !== undefined && notes !== '') {
-						setClauses.push('bk.notes = $notes');
-						parameters.notes = notes;
+					if (newNotes !== undefined) { // Allow setting notes to empty string
+						setClauses.push('bk.notes = $newNotes');
+						updateParamsRaw.newNotes = newNotes;
 					}
+
+					// Use prepareQueryParams helper
+					const preparedUpdateParams = prepareQueryParams(updateParamsRaw);
 
 					// Start building the query
-					let query = `MATCH (bk:Booking {booking_id: $bookingId})\n`;
+					let updateQuery = `MATCH (bk:Booking {booking_id: $bookingId})\n`;
 
 					// Add SET clause if there are properties to update
 					if (setClauses.length > 0) {
-						setClauses.push('bk.updated_at = datetime()'); // Always update timestamp if setting properties
-						query += `SET ${setClauses.join(', ')}\n`;
+						setClauses.push('bk.updated_at = datetime()'); // Add updated timestamp
+						updateQuery += `SET ${setClauses.join(', ')}\n`;
+						updateQuery += `WITH bk\n`; // Pass bk for potential staff update
+					} else {
+						// If no properties set, still need bk for staff update or return
+						updateQuery += `WITH bk\n`;
 					}
 
-					// Handle Staff Relationship Update
-					if (staffId !== undefined) {
-						// Remove existing staff relationship first
-						query += `WITH bk OPTIONAL MATCH (bk)-[r:SERVED_BY]->() DELETE r\n`;
-						if (staffId !== '') {
-							// If a new staffId is provided, match the staff and create the new relationship
-							query += `WITH bk MATCH (st:Staff {staff_id: $staffId}) MERGE (bk)-[:SERVED_BY]->(st)\n`;
-							parameters.staffId = staffId;
+					// Handle Staff Relationship Update only if rawNewStaffId was provided
+					if (rawNewStaffId !== undefined) {
+						// Always remove existing relationship if staff parameter was touched
+						updateQuery += `OPTIONAL MATCH (bk)-[r_old_staff:SERVED_BY]->() DELETE r_old_staff\n`;
+						if (finalStaffId) { // If new staffId is not null/empty
+							// Match the new staff and create the relationship
+							updateQuery += `WITH bk MATCH (st_new:Staff {staff_id: $finalStaffId}) MERGE (bk)-[:SERVED_BY]->(st_new)\n`;
+							preparedUpdateParams.finalStaffId = finalStaffId; // Add finalStaffId to params
 						}
-						// If staffId is an empty string, we just removed the relationship.
-					} else {
-						// If staffId is undefined (not provided in input), we need WITH bk to pass it to RETURN
-						if (setClauses.length > 0) { // Only add WITH if SET was applied
-							query += `WITH bk\n`;
-						}
+						updateQuery += `WITH bk\n`; // Pass bk after staff update
 					}
+					// Note: If rawNewStaffId was undefined, no staff changes happen.
 
 					// Add RETURN clause
-					query += `RETURN bk {.*} AS booking`;
+					updateQuery += `RETURN bk {.*,
+										 business_id: (MATCH (bk)-[:AT_BUSINESS]->(b) RETURN b.business_id)[0],
+										 service_id: (MATCH (bk)-[:FOR_SERVICE]->(s) RETURN s.service_id)[0],
+										 customer_id: (MATCH (c)-[:MAKES]->(bk) RETURN c.customer_id)[0],
+										 staff_id: (MATCH (bk)-[:SERVED_BY]->(st) RETURN st.staff_id)[0],
+										 resource_type_id: (MATCH (bk)-[:USES_RESOURCE]->()-[:OF_TYPE]->(rt) RETURN rt.type_id)[0],
+										 resource_quantity: (MATCH (bk)-[:USES_RESOURCE]->(ru) RETURN ru.quantity)[0]
+										} AS booking`; // Return enriched booking data
 
-					const isWrite = true; // This is a write operation
+					this.logger.debug(`[Update Booking] Executing update query with params: ${JSON.stringify(preparedUpdateParams)}`);
+					const results = await runCypherQuery.call(this, session, updateQuery, preparedUpdateParams, true, itemIndex);
 
-					// 7. Execute Query
-					if (!session) {
-						throw new NodeOperationError(node, 'Neo4j session is not available.', { itemIndex: i });
-					}
-					const results = await runCypherQuery.call(this, session, query, parameters, isWrite, i);
-					returnData.push(...results);
+					// Process results (convert Neo4j types in the result)
+                    const processedResults = results.map(record => ({
+                        json: {
+                            booking: convertNeo4jValueToJs(record.json.booking) // Convert the whole booking object
+                        },
+                        pairedItem: record.pairedItem,
+                    }));
+
+					returnData.push(...processedResults); // Add processed results
+
 
 				} catch (itemError) {
-					// 8. Handle Item-Level Errors
 					if (this.continueOnFail(itemError)) {
-						const item = items[i];
-						const parsedError = parseNeo4jError(node, itemError);
-						const errorData = { ...item.json, error: parsedError };
+						const item = items[itemIndex];
+						const parsedError = parseNeo4jError(node, itemError, 'update booking');
 						returnData.push({
-							json: errorData,
-							error: new NodeOperationError(node, parsedError.message, { itemIndex: i, description: parsedError.description ?? undefined }),
-							pairedItem: { item: i }
+							json: { ...item.json, error: parsedError.message, error_details: parsedError.description },
+							error: parsedError, // Attach the parsed error object
+							pairedItem: { item: itemIndex }
 						});
 						continue;
 					}
-					throw itemError;
+					// If not continuing on fail, parse and re-throw
+                	if (itemError instanceof NodeOperationError) { throw itemError; }
+					// Add itemIndex to the error before parsing if possible
+					(itemError as any).itemIndex = itemIndex;
+					throw parseNeo4jError(node, itemError); // Parse other errors
 				}
 			}
-
-			// 9. Return Results
-			return this.prepareOutputData(returnData);
 
 		} catch (error) {
-			// 10. Handle Node-Level Errors
+			// Node-Level Error Handling
+			if (this.continueOnFail()) {
+				const message = error instanceof Error ? error.message : String(error);
+				returnData.push({ json: { error: message } });
+				return this.prepareOutputData(returnData); // Prepare data even on node-level failure if continuing
+			}
 			if (error instanceof NodeOperationError) { throw error; }
-			throw parseNeo4jError(node, error);
+			throw parseNeo4jError(node, error); // Parse other errors
 		} finally {
-			// 11. Close Session and Driver
+			// Close Session and Driver
 			if (session) {
-				try {
-					await session.close();
-					this.logger.debug('Neo4j session closed successfully.');
-				} catch (closeError) {
-					this.logger.error('Error closing Neo4j session:', closeError);
-				}
+				try { await session.close(); this.logger.debug('Neo4j session closed.'); }
+				catch (e) { this.logger.error('Error closing Neo4j session:', e); }
 			}
 			if (driver) {
-				try {
-					await driver.close();
-					this.logger.debug('Neo4j driver closed successfully.');
-				} catch (closeError) {
-					this.logger.error('Error closing Neo4j driver:', closeError);
-				}
+				try { await driver.close(); this.logger.debug('Neo4j driver closed.'); }
+				catch (e) { this.logger.error('Error closing Neo4j driver:', e); }
 			}
 		}
+
+		return this.prepareOutputData(returnData); // Prepare final output
 	}
 }
