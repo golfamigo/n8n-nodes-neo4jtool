@@ -26,10 +26,13 @@ import {
 } from '../neo4j/helpers/timeUtils';
 
 // --- 導入輔助函式 ---
-// Removed unused import: checkStaffAndResourceAvailability is not used in this node's execute logic.
-// import {
-// 	checkStaffAndResourceAvailability,
-// } from '../neo4j/helpers/availabilityChecks/checkStaffAndResource';
+import {
+	checkStaffAndResourceAvailability,
+	StaffAndResourceCheckParams
+} from '../neo4j/helpers/availabilityChecks/checkStaffAndResource';
+
+// --- 導入 Luxon DateTime 處理時間 ---
+import { DateTime } from 'luxon';
 
 // --- Node Class Definition ---
 export class Neo4jFindAvailableSlotsStaffAndResource implements INodeType {
@@ -200,7 +203,7 @@ export class Neo4jFindAvailableSlotsStaffAndResource implements INodeType {
 				throw parseNeo4jError(node, connectionError, 'Neo4j 連接失敗。');
 			}
 
-			// 4. 查詢商家信息、服務時長、營業時間、員工和資源
+			// 4. 查詢基本資訊
 			const preQuery = `
 				MATCH (b:Business {business_id: $businessId})
 				OPTIONAL MATCH (b)-[:HAS_HOURS]->(bh:BusinessHours)
@@ -213,12 +216,12 @@ export class Neo4jFindAvailableSlotsStaffAndResource implements INodeType {
 				// 獲取服務信息
 				MATCH (s:Service {service_id: $serviceId})<-[:OFFERS]-(b)
 
-				// 確認指定員工存在並能提供該服務 (修正關係方向)
+				// 確認指定員工存在並能提供該服務
 				MATCH (st:Staff {staff_id: $requiredStaffId})-[:WORKS_AT]->(b)
 				WITH b, hoursList, s, st
 				MATCH (st)-[:CAN_PROVIDE]->(s)
 
-				// 確認資源類型存在 (修正：考慮直接屬性和 BELONGS_TO)
+				// 確認資源類型存在
 				MATCH (rt:ResourceType {type_id: $requiredResourceTypeId})
 				WHERE rt.business_id = $businessId OR EXISTS((rt)-[:BELONGS_TO]->(b))
 
@@ -257,10 +260,9 @@ export class Neo4jFindAvailableSlotsStaffAndResource implements INodeType {
 				const preResult = await session.run(preQuery, preQueryParams);
 
 				if (preResult.records.length === 0) {
-					// Provide a more specific error message based on what might be missing
+					// 提供更具體的錯誤信息
 					throw new NodeOperationError(node, `找不到商家 ID '${businessId}', 或服務 ID '${serviceId}', 或員工 ID '${requiredStaffId}' (可能無法提供服務), 或資源類型 ID '${requiredResourceTypeId}'.`, { itemIndex });
 				}
-
 
 				const record = preResult.records[0];
 				durationMinutes = convertNeo4jValueToJs(record.get('durationMinutes'));
@@ -290,197 +292,102 @@ export class Neo4jFindAvailableSlotsStaffAndResource implements INodeType {
 				throw parseNeo4jError(node, preQueryError, '獲取商家/服務/員工/資源信息失敗。');
 			}
 
-			// 5. 使用高效 Cypher 查詢直接生成和過濾時段 - 驗證後的查詢
-			//    (這個查詢邏輯現在完全在 Cypher 中處理，不再調用 TS 輔助函數)
-			const efficientQuery = `
-				// Input parameters
-				WITH datetime($startDateTime) AS rangeStart,
-					 datetime($endDateTime) AS rangeEnd,
-					 toInteger($intervalMinutes) AS intervalMinutes, // Ensure integer
-					 toInteger($serviceDuration) AS serviceDurationMinutes, // Ensure integer
-					 $businessId AS businessId,
-					 $requiredStaffId AS staffId,
-					 $requiredResourceTypeId AS resourceTypeId,
-					 toInteger($requiredResourceCapacity) AS resourceCapacity, // Ensure integer
-					 $serviceId AS serviceId
+			// 5. 生成時間序列並檢查每個時段
+			// 直接使用 DateTime 處理時間間隔和序列生成
+			const startDT = DateTime.fromISO(normalizedStartDateTime);
+			const endDT = DateTime.fromISO(normalizedEndDateTime);
+			
+			if (!startDT.isValid || !endDT.isValid) {
+				throw new NodeOperationError(node, '無效的日期時間。', { itemIndex });
+			}
+			
+			// 計算時間間隔總數
+			const totalMinutes = endDT.diff(startDT, 'minutes').minutes;
+			const slotsCount = Math.floor(totalMinutes / intervalMinutes);
+			
+			this.logger.debug('生成時間序列:', {
+				總時間差_分鐘: totalMinutes,
+				時段間隔_分鐘: intervalMinutes,
+				總時段數: slotsCount
+			});
 
-				// 1. Generate time series
-				WITH rangeStart, rangeEnd, intervalMinutes, serviceDurationMinutes, businessId, staffId, resourceTypeId, resourceCapacity, serviceId,
-					 CASE
-						 WHEN duration.between(rangeStart, rangeEnd).minutes < 0 THEN [] // Handle negative duration
-						 ELSE range(0, duration.between(rangeStart, rangeEnd).minutes / intervalMinutes)
-					 END AS indices
-				UNWIND indices AS index
-				WITH rangeStart + duration({minutes: index * intervalMinutes}) AS slotStart,
-					 duration({minutes: serviceDurationMinutes}) AS serviceDuration,
-					 businessId, staffId, resourceTypeId, resourceCapacity, serviceId,
-					 serviceDurationMinutes AS durationMinutesVal
+			const availableSlots: string[] = [];
 
-				// 2. Calculate end time, date, and day of week
-				WITH slotStart, serviceDuration, slotStart + serviceDuration AS slotEnd,
-						date(slotStart) AS slotDate, date(slotStart).dayOfWeek AS slotDayOfWeek,
-						businessId, staffId, resourceTypeId, resourceCapacity, serviceId, durationMinutesVal,
-						rangeEnd  // 加上這個變數
-
-				// Filter out slots that end after the requested range end time
-				WHERE slotEnd <= rangeEnd
-
-				// 3. Match Business, Service, specified Staff, and Resource Type
-				MATCH (b:Business {business_id: businessId})
-				MATCH (st:Staff {staff_id: staffId})-[:WORKS_AT]->(b)
-				MATCH (s:Service {service_id: serviceId})<-[:OFFERS]-(b)
-				// Ensure ResourceType exists and belongs to the business
-				MATCH (rt:ResourceType {type_id: resourceTypeId})
-				WHERE rt.business_id = businessId OR EXISTS((rt)-[:BELONGS_TO]->(b))
-
-
-				// 4. Check if Staff can provide the Service
-				WITH slotStart, slotEnd, slotDate, slotDayOfWeek, b, st, s, rt, resourceCapacity, durationMinutesVal
-				WHERE EXISTS { MATCH (st)-[:CAN_PROVIDE]->(s) }
-
-				// 5. Check Business Hours
-				WITH slotStart, slotEnd, slotDate, slotDayOfWeek, b, st, s, rt, resourceCapacity, durationMinutesVal
-				OPTIONAL MATCH (b)-[:HAS_HOURS]->(bh:BusinessHours {day_of_week: slotDayOfWeek})
-				WITH slotStart, slotEnd, slotDate, slotDayOfWeek, b, st, s, rt, resourceCapacity, durationMinutesVal,
-					 // Ensure business hours exist for the day and cover the slot
-					 CASE
-					   WHEN bh IS NULL THEN false // No hours defined for this day
-					   WHEN time(bh.start_time) <= time(slotStart) AND time(bh.end_time) >= time(slotEnd) THEN true
-					   ELSE false
-					 END AS withinBusinessHours
-				WHERE withinBusinessHours // Only proceed if within business hours
-
-				// 6. Check Staff Availability (Schedule & Exceptions)
-				WITH slotStart, slotEnd, slotDate, slotDayOfWeek, b, st, s, rt, resourceCapacity, durationMinutesVal
-
-				// Check for covering schedule
-				OPTIONAL MATCH (st)-[:HAS_AVAILABILITY]->(sched:StaffAvailability {type: 'SCHEDULE', day_of_week: slotDayOfWeek})
-				WHERE time(sched.start_time) <= time(slotStart) AND time(sched.end_time) >= time(slotEnd)
-
-				// Check for covering positive exception
-				OPTIONAL MATCH (st)-[:HAS_AVAILABILITY]->(exc:StaffAvailability {type: 'EXCEPTION', date: slotDate})
-				WHERE time(exc.start_time) <= time(slotStart) AND time(exc.end_time) >= time(slotEnd)
-
-				// Check for blocking exception (full day)
-				OPTIONAL MATCH (st)-[:HAS_AVAILABILITY]->(blockingExc:StaffAvailability {type: 'EXCEPTION', date: slotDate})
-				WHERE time(blockingExc.start_time) = time({hour: 0, minute: 0})
-				  AND time(blockingExc.end_time) >= time({hour: 23, minute: 59})
-
-				WITH slotStart, slotEnd, slotDate, b, st, s, rt, resourceCapacity, durationMinutesVal,
-					 (sched IS NOT NULL OR exc IS NOT NULL) AS staffHasAvailability, // Either schedule or exception covers
-					 (blockingExc IS NULL) AS staffNotBlocked // No blocking exception
-
-				WHERE staffHasAvailability AND staffNotBlocked // Only proceed if staff is available and not blocked
-
-				// 7. Check Resource Availability
-				WITH slotStart, slotEnd, b, st, s, rt, resourceCapacity, durationMinutesVal
-
-				// Initial capacity check
-				WHERE rt.total_capacity >= resourceCapacity
-
-				// Check resource conflicts (sum used quantity in the slot)
-				OPTIONAL MATCH (existing:Booking)-[:USES_RESOURCE]->(ru:ResourceUsage)-[:OF_TYPE]->(rt)
-				MATCH (existing)-[:FOR_SERVICE]->(s_existing:Service) // Needed for existing booking duration
-				WHERE existing.status <> 'Cancelled'
-				  AND existing.booking_time < slotEnd
-				  // Use actual duration of the existing booking's service
-				  AND existing.booking_time + duration({minutes: s_existing.duration_minutes}) > slotStart
-
-				WITH slotStart, slotEnd, b, st, s, rt, resourceCapacity, durationMinutesVal,
-					 sum(coalesce(ru.quantity, 0)) AS totalUsedCapacity // Sum used resources
-
-				// Check if enough resources remain
-				WITH slotStart, slotEnd, b, st, s, durationMinutesVal,
-					 (resourceCapacity + totalUsedCapacity <= rt.total_capacity) AS hasEnoughResources
-
-				WHERE hasEnoughResources // Only proceed if resources are sufficient
-
-				// 8. Check Staff Booking Conflicts
-				WITH slotStart, slotEnd, b, st, s, durationMinutesVal
-				OPTIONAL MATCH (bk_staff:Booking)-[:SERVED_BY]->(st)
-				MATCH (bk_staff)-[:FOR_SERVICE]->(s_staff:Service) // Needed for staff booking duration
-				WHERE bk_staff.status <> 'Cancelled'
-				  AND bk_staff.booking_time < slotEnd
-				  // Use actual duration of the staff's existing booking's service
-				  AND bk_staff.booking_time + duration({minutes: s_staff.duration_minutes}) > slotStart
-
-				// 9. Final Filtering: Only slots with no staff conflict
-				WITH slotStart, bk_staff IS NULL AS noStaffConflict
-				WHERE noStaffConflict
-
-				// 10. Return available slots as ISO strings
-				RETURN toString(slotStart) AS availableSlot
-				ORDER BY slotStart
-			`;
-
-
-			const efficientParams: IDataObject = {
-				businessId,
-				serviceId,
-				startDateTime: normalizedStartDateTime,
-				endDateTime: normalizedEndDateTime,
-				intervalMinutes: neo4j.int(intervalMinutes),
-				serviceDuration: neo4j.int(durationMinutes), // Pass durationMinutes here
-				requiredStaffId,
-				requiredResourceTypeId,
-				requiredResourceCapacity: neo4j.int(requiredResourceCapacity),
-			};
-
-			try {
-				// 6. 執行高效查詢
-				this.logger.debug('執行高效 StaffAndResource 可用時段查詢', efficientParams);
-
-				if (!session) {
-					throw new NodeOperationError(node, 'Neo4j 會話未初始化', { itemIndex });
+			// 為每個時段使用 checkStaffAndResourceAvailability 檢查可用性
+			for (let i = 0; i < slotsCount; i++) {
+				const slotStartDT = startDT.plus({ minutes: i * intervalMinutes });
+				const slotEndDT = slotStartDT.plus({ minutes: durationMinutes });
+				
+				// 檢查是否超出範圍
+				if (slotEndDT > endDT) {
+					break;
+				}
+				
+				const bookingTimeISO = slotStartDT.toISO();
+				if (!bookingTimeISO) {
+					continue; // 跳過無效時間格式
 				}
 
-				const availableSlotsResults = await runCypherQuery.call(
-					this,
-					session,
-					efficientQuery,
-					efficientParams,
-					false, // Read query
-					itemIndex
-				);
-
-				// 7. 從查詢結果中提取可用時段
-				const availableSlots: string[] = availableSlotsResults.map(record => record.json.availableSlot as string);
-
-				this.logger.debug(`找到 ${availableSlots.length} 個可用時段`);
-
-				// 8. 準備結果數據
-				returnData.push({
-					json: {
-						availableSlots,
-						mode: "StaffAndResource",
+				try {
+					// 使用輔助函數檢查可用性
+					const checkParams: StaffAndResourceCheckParams = {
+						businessId,
 						serviceId,
-						serviceDuration: durationMinutes,
-						staffName: staffName || "未知員工",
 						staffId: requiredStaffId,
-						resourceTypeName: resourceTypeName || "未知資源類型",
 						resourceTypeId: requiredResourceTypeId,
-						requiredCapacity: requiredResourceCapacity,
-						totalCapacity,
-						resourceDescription: resourceTypeDescription || ""
-					},
-					pairedItem: { item: itemIndex },
-				});
+						resourceQuantity: requiredResourceCapacity,
+						bookingTime: bookingTimeISO,
+						itemIndex,
+						node: this,
+					};
 
-			} catch (queryError) {
-				this.logger.error('執行可用性查詢時出錯:', queryError);
-				throw parseNeo4jError(node, queryError, '檢查時段可用性失敗。');
+					// 使用 checkStaffAndResourceAvailability 輔助函數檢查可用性
+					await checkStaffAndResourceAvailability(session, checkParams, this);
+					
+					// 如果沒有拋出錯誤，則表示此時段可用
+					availableSlots.push(bookingTimeISO);
+					this.logger.debug(`時段可用: ${bookingTimeISO}`);
+				} catch (slotError) {
+					// 如果是 NodeOperationError，則表示此時段不可用，這是預期的
+					if (slotError instanceof NodeOperationError) {
+						this.logger.debug(`時段不可用 ${bookingTimeISO}: ${slotError.message}`);
+					} else {
+						// 對於其他錯誤，記錄但繼續檢查下一個時段
+						this.logger.warn(`檢查時段 ${bookingTimeISO} 時發生錯誤:`, slotError);
+					}
+				}
 			}
 
-			// 9. 返回結果
-			return this.prepareOutputData(returnData); // Moved outside the try-catch for query execution
+			this.logger.debug(`找到 ${availableSlots.length} 個可用時段`);
+
+			// 6. 準備結果數據
+			returnData.push({
+				json: {
+					availableSlots,
+					mode: "StaffAndResource",
+					serviceId,
+					serviceDuration: durationMinutes,
+					staffName: staffName || "未知員工",
+					staffId: requiredStaffId,
+					resourceTypeName: resourceTypeName || "未知資源類型",
+					resourceTypeId: requiredResourceTypeId,
+					requiredCapacity: requiredResourceCapacity,
+					totalCapacity,
+					resourceDescription: resourceTypeDescription || ""
+				},
+				pairedItem: { item: itemIndex },
+			});
+
+			// 7. 返回結果
+			return this.prepareOutputData(returnData);
 
 		} catch (error) {
-			// 10. 處理節點級錯誤
+			// 8. 處理節點級錯誤
 			if (error instanceof NodeOperationError) { throw error; }
 			(error as any).itemIndex = itemIndex;
 			throw parseNeo4jError(node, error);
 		} finally {
-			// 11. 關閉會話和驅動
+			// 9. 關閉會話和驅動
 			if (session) {
 				try {
 					await session.close();
