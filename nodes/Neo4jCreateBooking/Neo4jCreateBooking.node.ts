@@ -35,7 +35,7 @@ export class Neo4jCreateBooking implements INodeType {
 		name: 'neo4jCreateBooking',
 		icon: 'file:../neo4j/neo4j.svg', // Adjusted path
 		group: ['transform'],
-		version: 1, // Changed from 1.1 to 1 to fix installation error
+		version: 1,
 		description: 'Creates a new booking record in Neo4j after checking availability based on the service\'s booking mode using helper functions', // Updated description
 		defaults: {
 			name: 'Neo4j Create Booking',
