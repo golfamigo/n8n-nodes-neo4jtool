@@ -48,7 +48,7 @@ export class Neo4jUpdateBooking implements INodeType {
 		name: 'neo4jUpdateBooking',
 		icon: 'file:../neo4j/neo4j.svg',
 		group: ['database'],
-		version: 1.1, // Incremented version for significant change
+		version: 1, // Incremented version for significant change
 		subtitle: '={{$parameter["bookingId"]}}',
 		description: '根據 booking_id 更新預約資訊。如果更新 bookingTime 或 staffId，會先檢查新時段/員工的可用性。bookingId: 要更新的預約 ID (UUID)。其他欄位為可選更新項。', // Updated description
 		defaults: {
