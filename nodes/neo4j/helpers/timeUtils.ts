@@ -567,3 +567,76 @@ export function isTimeBetween(t1: string, start: string, end: string, inclusiveE
         return time >= startTime && (inclusiveEnd ? time <= endTime : time < endTime);
     }
 }
+
+/**
+ * 將 UTC 時間轉換為目標時區的時間格式
+ * @param utcTime UTC 時間字符串
+ * @param targetTimezone 目標時區
+ * @returns 轉換後的時間字符串
+ */
+export function convertToTimezone(utcTime: string, targetTimezone: string): string {
+  if (!utcTime || !targetTimezone) return utcTime;
+
+  try {
+    const dt = DateTime.fromISO(utcTime, { zone: 'UTC' });
+    if (!dt.isValid) return utcTime;
+
+    return dt.setZone(targetTimezone).toISO();
+  } catch (error) {
+    console.error(`Error converting to timezone ${targetTimezone}: ${error.message}`);
+    return utcTime;
+  }
+}
+
+/**
+ * 從數據庫獲取商家的時區設置
+ * @param session Neo4j 會話
+ * @param businessId 商家 ID
+ * @returns 商家時區或預設值 'UTC'
+ */
+export async function getBusinessTimezone(session: Session, businessId: string): Promise<string> {
+  if (!session || !businessId) return 'UTC';
+
+  try {
+    const query = `
+      MATCH (b:Business {business_id: $businessId})
+      RETURN b.timezone AS timezone
+    `;
+
+    const result = await session.run(query, { businessId });
+    return result.records.length > 0 ?
+           (result.records[0].get('timezone') || 'UTC') : 'UTC';
+  } catch (error) {
+    console.error(`Error getting business timezone: ${error.message}`);
+    return 'UTC';
+  }
+}
+
+/**
+ * 檢測查詢時間字符串中的時區信息
+ * @param dateTimeStr 時間字符串
+ * @returns 時區字符串或 null
+ */
+export function detectQueryTimezone(dateTimeStr: string): string | null {
+  if (!dateTimeStr) return null;
+
+  try {
+    // 測試 ISO 8601 格式的時區標記 (如 +08:00, -05:00)
+    const tzMatch = dateTimeStr.match(/([+-])(\d{2}):?(\d{2})$/);
+    if (tzMatch) {
+      const [_, sign, hours, minutes] = tzMatch;
+      return `${sign}${hours}:${minutes}`;
+    }
+
+    // 測試命名時區 (如 'Asia/Taipei')
+    const dt = DateTime.fromISO(dateTimeStr);
+    if (dt.isValid && dt.zoneName && dt.zoneName !== 'UTC') {
+      return dt.zoneName;
+    }
+
+    return null; // 無時區信息
+  } catch (error) {
+    console.error(`Error detecting timezone: ${error.message}`);
+    return null;
+  }
+}

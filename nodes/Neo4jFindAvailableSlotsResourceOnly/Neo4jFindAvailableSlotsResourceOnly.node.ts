@@ -23,6 +23,9 @@ import {
 import {
 	normalizeDateTime,
 	getIsoWeekday,
+	convertToTimezone,
+  getBusinessTimezone,
+  detectQueryTimezone,
 } from '../neo4j/helpers/timeUtils';
 
 // --- 導入可用性檢查輔助函式 ---
@@ -279,6 +282,27 @@ export class Neo4jFindAvailableSlotsResourceOnly implements INodeType {
 				throw parseNeo4jError(node, preQueryError, '獲取商家/服務/資源類型信息失敗。');
 			}
 
+			// 4.5 處理時區問題
+			// 1. 檢測查詢時區
+			const queryTimezone = detectQueryTimezone(startDateTimeStr);
+			this.logger.debug('檢測到的查詢時區:', { queryTimezone });
+
+			// 2. 如果沒有查詢時區，獲取商家時區
+			let targetTimezone = queryTimezone;
+			if (!targetTimezone) {
+				if (!session) {
+					throw new NodeOperationError(node, 'Neo4j 會話未初始化', { itemIndex });
+				}
+				targetTimezone = await getBusinessTimezone(session, businessId);
+				this.logger.debug('使用商家時區:', { targetTimezone });
+			}
+
+			// 如果依然沒有時區信息，預設使用 UTC
+			if (!targetTimezone) {
+				targetTimezone = 'UTC';
+				this.logger.debug('無法獲取有效時區，使用預設值 UTC');
+			}
+
 			// 5. 使用輔助函式生成可用時段
 			const slotQuery = `
 				// 生成時間範圍內的所有潛在時段
@@ -351,10 +375,20 @@ export class Neo4jFindAvailableSlotsResourceOnly implements INodeType {
 
 				this.logger.debug(`找到 ${availableSlots.length} 個可用時段`);
 
+				// 6. 準備結果數據
+				// 將 UTC 時間轉換為目標時區
+				const convertedSlots = availableSlots.map(slot => convertToTimezone(slot, targetTimezone!));
+
+				this.logger.debug(`轉換時區 (${targetTimezone}) 後的可用時段:`, {
+					原始UTC: availableSlots,
+					轉換後: convertedSlots
+				});
+
 				// 準備結果數據
 				returnData.push({
 					json: {
 						availableSlots,
+						timezone: targetTimezone,
 						mode: "ResourceOnly",
 						serviceId,
 						serviceDuration: durationMinutes,

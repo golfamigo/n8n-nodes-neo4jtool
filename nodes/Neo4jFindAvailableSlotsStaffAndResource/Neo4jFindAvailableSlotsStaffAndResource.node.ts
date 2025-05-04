@@ -21,6 +21,9 @@ import {
 import {
 	normalizeDateTime,
 	getIsoWeekday,
+	convertToTimezone,
+  getBusinessTimezone,
+  detectQueryTimezone,
 } from '../neo4j/helpers/timeUtils';
 
 // --- 導入輔助函式 ---
@@ -290,19 +293,40 @@ export class Neo4jFindAvailableSlotsStaffAndResource implements INodeType {
 				throw parseNeo4jError(node, preQueryError, '獲取商家/服務/員工/資源信息失敗。');
 			}
 
+			// 4.5 處理時區問題
+			// 1. 檢測查詢時區
+			const queryTimezone = detectQueryTimezone(startDateTimeStr);
+			this.logger.debug('檢測到的查詢時區:', { queryTimezone });
+
+			// 2. 如果沒有查詢時區，獲取商家時區
+			let targetTimezone = queryTimezone;
+			if (!targetTimezone) {
+				if (!session) {
+					throw new NodeOperationError(node, 'Neo4j 會話未初始化', { itemIndex });
+				}
+				targetTimezone = await getBusinessTimezone(session, businessId);
+				this.logger.debug('使用商家時區:', { targetTimezone });
+			}
+
+			// 如果依然沒有時區信息，預設使用 UTC
+			if (!targetTimezone) {
+				targetTimezone = 'UTC';
+				this.logger.debug('無法獲取有效時區，使用預設值 UTC');
+			}
+
 			// 5. 生成時間序列並檢查每個時段
 			// 直接使用 DateTime 處理時間間隔和序列生成
 			const startDT = DateTime.fromISO(normalizedStartDateTime);
 			const endDT = DateTime.fromISO(normalizedEndDateTime);
-			
+
 			if (!startDT.isValid || !endDT.isValid) {
 				throw new NodeOperationError(node, '無效的日期時間。', { itemIndex });
 			}
-			
+
 			// 計算時間間隔總數
 			const totalMinutes = endDT.diff(startDT, 'minutes').minutes;
 			const slotsCount = Math.floor(totalMinutes / intervalMinutes);
-			
+
 			this.logger.debug('生成時間序列:', {
 				總時間差_分鐘: totalMinutes,
 				時段間隔_分鐘: intervalMinutes,
@@ -315,12 +339,12 @@ export class Neo4jFindAvailableSlotsStaffAndResource implements INodeType {
 			for (let i = 0; i < slotsCount; i++) {
 				const slotStartDT = startDT.plus({ minutes: i * intervalMinutes });
 				const slotEndDT = slotStartDT.plus({ minutes: durationMinutes });
-				
+
 				// 檢查是否超出範圍
 				if (slotEndDT > endDT) {
 					break;
 				}
-				
+
 				const bookingTimeISO = slotStartDT.toISO();
 				if (!bookingTimeISO) {
 					continue; // 跳過無效時間格式
@@ -341,7 +365,7 @@ export class Neo4jFindAvailableSlotsStaffAndResource implements INodeType {
 
 					// 使用 checkStaffAndResourceAvailability 輔助函數檢查可用性
 					await checkStaffAndResourceAvailability(session, checkParams, this);
-					
+
 					// 如果沒有拋出錯誤，則表示此時段可用
 					availableSlots.push(bookingTimeISO);
 					this.logger.debug(`時段可用: ${bookingTimeISO}`);
@@ -358,10 +382,19 @@ export class Neo4jFindAvailableSlotsStaffAndResource implements INodeType {
 
 			this.logger.debug(`找到 ${availableSlots.length} 個可用時段`);
 
+			// 將 UTC 時間轉換為目標時區
+			const convertedSlots = availableSlots.map(slot => convertToTimezone(slot, targetTimezone!));
+
+			this.logger.debug(`轉換時區 (${targetTimezone}) 後的可用時段:`, {
+				原始UTC: availableSlots,
+				轉換後: convertedSlots
+			});
+
 			// 6. 準備結果數據
 			returnData.push({
 				json: {
 					availableSlots,
+					timezone: targetTimezone,
 					mode: "StaffAndResource",
 					serviceId,
 					serviceDuration: durationMinutes,

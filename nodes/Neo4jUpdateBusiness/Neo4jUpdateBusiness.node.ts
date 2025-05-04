@@ -94,6 +94,13 @@ export class Neo4jUpdateBusiness implements INodeType {
 				description: '新的商家聯繫電子郵件 (可選)',
 			},
 			{
+				displayName: 'Timezone',
+				name: 'timezone',
+				type: 'string',
+				default: '',
+				description: '新的商家所在時區 (例如 Asia/Taipei 或 +08:00) (可選)',
+			},
+			{
 				displayName: 'Description',
 				name: 'description',
 				type: 'string',
@@ -171,6 +178,7 @@ export class Neo4jUpdateBusiness implements INodeType {
 					const address = this.getNodeParameter('address', i, undefined) as string | undefined;
 					const phone = this.getNodeParameter('phone', i, undefined) as string | undefined;
 					const email = this.getNodeParameter('email', i, undefined) as string | undefined;
+					const timezone = this.getNodeParameter('timezone', i, undefined) as string | undefined;
 					const description = this.getNodeParameter('description', i, undefined) as string | undefined;
 
 					// Determine the booking_mode to use (Input > UI Fallback)

@@ -99,6 +99,14 @@ export class Neo4jCreateBusiness implements INodeType {
 				description: '商家聯繫電子郵件',
 			},
 			{
+				displayName: 'Timezone',
+				name: 'timezone',
+				type: 'string',
+				required: true,
+				default: 'Asia/Taipei',
+				description: '商家所在時區 (例如 Asia/Taipei 或 +08:00)',
+			},
+			{
 				displayName: 'Description',
 				name: 'description',
 				type: 'string',
@@ -156,6 +164,7 @@ export class Neo4jCreateBusiness implements INodeType {
 					const phone = this.getNodeParameter('phone', i, '') as string;
 					const email = this.getNodeParameter('email', i, '') as string;
 					const description = this.getNodeParameter('description', i, '') as string;
+					const timezone = this.getNodeParameter('timezone', i, 'Asia/Taipei') as string;
 
 					// Removed logic for determining and validating booking_mode
 
@@ -164,24 +173,25 @@ export class Neo4jCreateBusiness implements INodeType {
 					this.logger.info(`- ownerUserId: ${ownerUserId}`);
 					this.logger.info(`- name: ${name}`);
 					this.logger.info(`- type: ${type}`);
+					this.logger.info(`- timezone: ${timezone}`);
 					// Removed booking_mode logging
 
 					const query = `
 					MATCH (owner:User {id: $ownerUserId})
 					CREATE (b:Business {
-					business_id: randomUUID(),
-					name: $name,
-					type: $type,
-					 address: $address,
-					 phone: $phone,
-					 email: $email,
-					  description: $description,
-								// Removed booking_mode property
-								created_at: datetime()
-							})
-							MERGE (owner)-[:OWNS]->(b)
-							RETURN b {.*} AS business
-						`;
+						business_id: randomUUID(),
+						name: $name,
+						type: $type,
+						address: $address,
+						phone: $phone,
+						email: $email,
+						description: $description,
+						timezone: $timezone,
+						created_at: datetime()
+					})
+					MERGE (owner)-[:OWNS]->(b)
+					RETURN b {.*} AS business
+					`;
 					const parameters: IDataObject = {
 						ownerUserId,
 						name,
@@ -189,6 +199,7 @@ export class Neo4jCreateBusiness implements INodeType {
 						address,
 						phone,
 						email,
+						timezone,
 						description,
 						// Removed booking_mode_param from parameters
 					};
