@@ -1,5 +1,5 @@
 import type { Session } from 'neo4j-driver';
-import type { IExecuteFunctions } from 'n8n-workflow'; // Removed unused IDataObject
+import type { IExecuteFunctions, IDataObject } from 'n8n-workflow'; // Added IDataObject
 import { NodeOperationError } from 'n8n-workflow';
 // Removed unused neo4j import
 import { runCypherQuery, convertNeo4jValueToJs } from '../utils';
@@ -16,6 +16,7 @@ export interface ResourceOnlyCheckParams {
 	itemIndex: number;
 	node: IExecuteFunctions; // To throw NodeOperationError correctly
 	customerId?: string; // Optional for customer conflict check
+	existingBookingId?: string; // Optional for excluding the current booking in update scenarios
 }
 
 // Helper function to validate resource type ID
@@ -78,6 +79,7 @@ export async function checkResourceOnlyAvailability(
 		itemIndex: params.itemIndex,
 		node: params.node,
 		customerId: params.customerId,
+		existingBookingId: params.existingBookingId, // 如果存在，將 existingBookingId 傳遞給 TimeOnly 檢查
 	};
 	await checkTimeOnlyAvailability(session, timeOnlyParams, context);
 	context.logger.debug('[ResourceOnly Check v2] TimeOnly checks passed.');
@@ -121,8 +123,8 @@ export async function checkResourceOnlyAvailability(
 	context.logger.debug(`[ResourceOnly Check v2] Resource Type ${params.resourceTypeId} total capacity: ${totalCapacity}`);
 
 	// --- 4. Calculate Used Resource Quantity in Slot ---
-	// Use improved parameter preparation with validation
-	let queryParams;
+	// 使用改進的參數準備並進行驗證
+	let queryParams: IDataObject;
 	try {
 		queryParams = prepareResourceAvailabilityParams(
 			params.resourceTypeId,
@@ -131,16 +133,32 @@ export async function checkResourceOnlyAvailability(
 			slotStart,
 			slotEnd
 		);
+		
+		// 如果提供了 existingBookingId，將其添加到查詢參數中
+		if (params.existingBookingId) {
+			queryParams.existingBookingId = params.existingBookingId;
+		}
 	} catch (error) {
 		throw new NodeOperationError(params.node.getNode(), `Parameter validation error: ${error instanceof Error ? error.message : 'Unknown error'}`, { itemIndex: params.itemIndex });
 	}
 
-	const usedQuantityQuery = `
+	// 構建資源使用查詢，排除當前預約（如果提供了existingBookingId）
+	let usedQuantityQuery = `
         MATCH (existing:Booking)-[:USES_RESOURCE]->(ru:ResourceUsage)-[:OF_TYPE]->(:ResourceType {type_id: $resourceTypeId})
         MATCH (existing)-[:FOR_SERVICE]->(s_existing:Service) // Get existing booking's service
         WHERE existing.status <> 'Cancelled'
           AND existing.booking_time < datetime($slotEnd) // Existing booking starts before potential slot ends
           AND existing.booking_time + duration({minutes: s_existing.duration_minutes}) > datetime($slotStart) // Existing booking ends after potential slot starts
+    `;
+    
+    // 如果提供了 existingBookingId，排除該預約
+    if (params.existingBookingId) {
+        usedQuantityQuery += `
+          AND existing.booking_id <> $existingBookingId // Exclude the booking being updated
+        `;
+    }
+    
+    usedQuantityQuery += `
         RETURN sum(coalesce(ru.quantity, 0)) AS currentlyUsed
     `;
 	const usedQuantityResults = await runCypherQuery.call(context, session, usedQuantityQuery, queryParams, false, params.itemIndex);

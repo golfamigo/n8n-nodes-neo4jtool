@@ -10,7 +10,7 @@ import type {
 	ICredentialDataDecryptedObject,
 } from 'n8n-workflow';
 import { NodeOperationError } from 'n8n-workflow';
-import neo4j, { Driver, Session, auth, Integer as Neo4jInteger } from 'neo4j-driver';
+import neo4j, { Driver, Session, auth } from 'neo4j-driver';
 
 // --- Shared Utilities ---
 import {
@@ -150,24 +150,24 @@ export class Neo4jUpdateBooking implements INodeType {
 
 					// 4. Fetch Existing Booking Info & Related Service Details
 					const fetchQuery = `
-						MATCH (bk:Booking {booking_id: $bookingId})
-						OPTIONAL MATCH (bk)-[:AT_BUSINESS]->(b:Business)
-						OPTIONAL MATCH (bk)-[:FOR_SERVICE]->(s:Service)
-						OPTIONAL MATCH (bk)-[:SERVED_BY]->(st:Staff)
-						OPTIONAL MATCH (bk)-[:USES_RESOURCE]->(ru:ResourceUsage)-[:OF_TYPE]->(rt:ResourceType)
-						RETURN
-							bk.booking_time AS currentBookingTime,
-							bk.status AS currentStatus,
-							b.business_id AS businessId,
-							s.service_id AS serviceId,
-							s.booking_mode AS bookingMode,
-							s.duration_minutes AS serviceDuration,
-							st.staff_id AS currentStaffId,
-							rt.type_id AS currentResourceTypeId,
-							ru.quantity AS currentResourceQuantity,
-							// Fetch customer ID needed for checks
-							(MATCH (c:Customer)-[:MAKES]->(bk) RETURN c.customer_id)[0] AS customerId
-						LIMIT 1
+							MATCH (bk:Booking {booking_id: $bookingId})
+							OPTIONAL MATCH (bk)-[:AT_BUSINESS]->(b:Business)
+							OPTIONAL MATCH (bk)-[:FOR_SERVICE]->(s:Service)
+							OPTIONAL MATCH (bk)-[:SERVED_BY]->(st:Staff)
+							OPTIONAL MATCH (bk)-[:USES_RESOURCE]->(ru:ResourceUsage)-[:OF_TYPE]->(rt:ResourceType)
+							OPTIONAL MATCH (c:Customer)-[:MAKES]->(bk)
+							RETURN
+									bk.booking_time AS currentBookingTime,
+									bk.status AS currentStatus,
+									b.business_id AS businessId,
+									s.service_id AS serviceId,
+									s.booking_mode AS bookingMode,
+									s.duration_minutes AS serviceDuration,
+									st.staff_id AS currentStaffId,
+									rt.type_id AS currentResourceTypeId,
+									ru.quantity AS currentResourceQuantity,
+									c.customer_id AS customerId
+							LIMIT 1
 					`;
 					const fetchParams = { bookingId };
 					const fetchResult = await runCypherQuery.call(this, session, fetchQuery, fetchParams, false, itemIndex);
@@ -233,7 +233,7 @@ export class Neo4jUpdateBooking implements INodeType {
 						this.logger.debug(`[Update Booking] Performing availability check for mode: ${bookingMode} (Time or Staff changed)`);
 						switch (bookingMode) {
 							case 'TimeOnly':
-								const timeParams: TimeOnlyCheckParams = { businessId, serviceId, bookingTime: timeForCheck, itemIndex, node: this, customerId, existingBookingId: bookingId }; // Pass existingBookingId
+								const timeParams: TimeOnlyCheckParams = { businessId, serviceId, bookingTime: timeForCheck, itemIndex, node: this, customerId, existingBookingId: bookingId };
 								await checkTimeOnlyAvailability(session, timeParams, this);
 								break;
 							case 'ResourceOnly':
@@ -308,15 +308,21 @@ export class Neo4jUpdateBooking implements INodeType {
 					}
 					// Note: If rawNewStaffId was undefined, no staff changes happen.
 
-					// Add RETURN clause
-					updateQuery += `RETURN bk {.*,
-										 business_id: (MATCH (bk)-[:AT_BUSINESS]->(b) RETURN b.business_id)[0],
-										 service_id: (MATCH (bk)-[:FOR_SERVICE]->(s) RETURN s.service_id)[0],
-										 customer_id: (MATCH (c)-[:MAKES]->(bk) RETURN c.customer_id)[0],
-										 staff_id: (MATCH (bk)-[:SERVED_BY]->(st) RETURN st.staff_id)[0],
-										 resource_type_id: (MATCH (bk)-[:USES_RESOURCE]->()-[:OF_TYPE]->(rt) RETURN rt.type_id)[0],
-										 resource_quantity: (MATCH (bk)-[:USES_RESOURCE]->(ru) RETURN ru.quantity)[0]
-										} AS booking`; // Return enriched booking data
+					// Add multiple OPTIONAL MATCH clauses for related data
+					updateQuery += `WITH bk
+					OPTIONAL MATCH (bk)-[:AT_BUSINESS]->(b:Business)
+					OPTIONAL MATCH (bk)-[:FOR_SERVICE]->(s:Service)
+					OPTIONAL MATCH (c:Customer)-[:MAKES]->(bk)
+					OPTIONAL MATCH (bk)-[:SERVED_BY]->(st:Staff)
+					OPTIONAL MATCH (bk)-[:USES_RESOURCE]->(ru:ResourceUsage)-[:OF_TYPE]->(rt:ResourceType)
+					RETURN bk {.*,
+							business_id: b.business_id,
+							service_id: s.service_id,
+							customer_id: c.customer_id,
+							staff_id: st.staff_id,
+							resource_type_id: rt.type_id,
+							resource_quantity: ru.quantity
+					} AS booking`;
 
 					this.logger.debug(`[Update Booking] Executing update query with params: ${JSON.stringify(preparedUpdateParams)}`);
 					const results = await runCypherQuery.call(this, session, updateQuery, preparedUpdateParams, true, itemIndex);

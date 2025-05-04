@@ -13,6 +13,7 @@ export interface TimeOnlyCheckParams {
 	itemIndex: number;
 	node: IExecuteFunctions; // To throw NodeOperationError correctly
 	customerId?: string; // Optional for customer conflict check
+	existingBookingId?: string; // Optional for excluding the current booking in update scenarios
 }
 
 // Helper function to check if a slot falls within any business hour range
@@ -96,19 +97,36 @@ export async function checkTimeOnlyAvailability(
 	context.logger.debug('[TimeOnly Check v2] Business hours check passed.');
 
 	// --- 4. Check General Booking Conflicts ---
-	const conflictCheckQuery = `
+	// 構建衝突檢查查詢，排除當前預約（如果提供了existingBookingId）
+	let conflictCheckQuery = `
         MATCH (b:Booking)-[:AT_BUSINESS]->(:Business {business_id: $businessId})
         MATCH (b)-[:FOR_SERVICE]->(s:Service) // Get the service of the existing booking
         WHERE b.status <> 'Cancelled'
           AND b.booking_time < datetime($slotEnd) // Existing booking starts before potential slot ends
           AND b.booking_time + duration({minutes: s.duration_minutes}) > datetime($slotStart) // Existing booking ends after potential slot starts
+    `;
+    
+    // 如果提供了 existingBookingId，排除該預約
+    if (params.existingBookingId) {
+        conflictCheckQuery += `
+          AND b.booking_id <> $existingBookingId // Exclude the booking being updated
+        `;
+    }
+    
+    conflictCheckQuery += `
         RETURN count(b) AS conflictCount
     `;
-	const conflictCheckParams = {
+	// 添加可能的 existingBookingId 到參數中
+	const conflictCheckParams: IDataObject = {
 		businessId: params.businessId,
 		slotStart: slotStart.toISO(),
 		slotEnd: slotEnd.toISO(),
 	};
+	
+	// 如果提供了 existingBookingId，將其添加到查詢參數中
+	if (params.existingBookingId) {
+		conflictCheckParams.existingBookingId = params.existingBookingId;
+	}
 	const conflictResults = await runCypherQuery.call(context, session, conflictCheckQuery, conflictCheckParams, false, params.itemIndex);
 	const conflictCount = convertNeo4jValueToJs(conflictResults[0]?.json.conflictCount) || 0;
 
@@ -119,19 +137,36 @@ export async function checkTimeOnlyAvailability(
 
 	// --- 5. Check Customer Conflicts (Optional) ---
 	if (params.customerId) {
-		const customerConflictQuery = `
+		// 構建客戶衝突檢查查詢，排除當前預約（如果提供了existingBookingId）
+		let customerConflictQuery = `
             MATCH (:Customer {customer_id: $customerId})-[:MAKES]->(bk_cust:Booking)
             MATCH (bk_cust)-[:FOR_SERVICE]->(s_cust:Service) // Get existing booking's service
             WHERE bk_cust.status <> 'Cancelled'
               AND bk_cust.booking_time < datetime($slotEnd) // Existing booking starts before potential slot ends
               AND bk_cust.booking_time + duration({minutes: s_cust.duration_minutes}) > datetime($slotStart) // Existing booking ends after potential slot starts
+        `;
+        
+        // 如果提供了 existingBookingId，排除該預約
+        if (params.existingBookingId) {
+            customerConflictQuery += `
+              AND bk_cust.booking_id <> $existingBookingId // Exclude the booking being updated
+            `;
+        }
+        
+        customerConflictQuery += `
             RETURN count(bk_cust) AS conflictCount
         `;
-		const customerConflictParams = {
+		// 添加可能的 existingBookingId 到參數中
+		const customerConflictParams: IDataObject = {
 			customerId: params.customerId,
 			slotStart: slotStart.toISO(),
 			slotEnd: slotEnd.toISO(),
 		};
+		
+		// 如果提供了 existingBookingId，將其添加到查詢參數中
+		if (params.existingBookingId) {
+			customerConflictParams.existingBookingId = params.existingBookingId;
+		}
 		const customerConflictResults = await runCypherQuery.call(context, session, customerConflictQuery, customerConflictParams, false, params.itemIndex);
 		const customerConflictCount = convertNeo4jValueToJs(customerConflictResults[0]?.json.conflictCount) || 0;
 

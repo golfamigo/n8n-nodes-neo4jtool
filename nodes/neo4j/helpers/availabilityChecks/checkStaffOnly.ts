@@ -1,5 +1,5 @@
 import type { Session } from 'neo4j-driver';
-import type { IExecuteFunctions } from 'n8n-workflow'; // Removed unused IDataObject
+import type { IExecuteFunctions, IDataObject } from 'n8n-workflow'; // Added IDataObject
 import { NodeOperationError } from 'n8n-workflow';
 // Removed unused neo4j import
 import { runCypherQuery, convertNeo4jValueToJs } from '../utils';
@@ -15,6 +15,7 @@ export interface StaffOnlyCheckParams {
 	itemIndex: number;
 	node: IExecuteFunctions; // To throw NodeOperationError correctly
 	customerId?: string; // Optional for customer conflict check
+	existingBookingId?: string; // Optional for excluding the current booking in update scenarios
 }
 
 // Helper function to check staff availability rules
@@ -93,6 +94,7 @@ export async function checkStaffOnlyAvailability(
 		itemIndex: params.itemIndex,
 		node: params.node,
 		customerId: params.customerId,
+		existingBookingId: params.existingBookingId, // 如果存在，將 existingBookingId 傳遞給 TimeOnly 檢查
 	};
 	await checkTimeOnlyAvailability(session, timeOnlyParams, context);
 	context.logger.debug('[StaffOnly Check v2] TimeOnly checks passed.');
@@ -148,19 +150,36 @@ export async function checkStaffOnlyAvailability(
 	context.logger.debug('[StaffOnly Check v2] Staff availability rules check passed.');
 
 	// --- 4. Check Staff-Specific Booking Conflicts ---
-	const staffConflictQuery = `
+	// 構建員工衝突檢查查詢，排除當前預約（如果提供了existingBookingId）
+	let staffConflictQuery = `
         MATCH (bk_staff:Booking)-[:SERVED_BY]->(:Staff {staff_id: $staffId})
         MATCH (bk_staff)-[:FOR_SERVICE]->(s_staff:Service) // Get existing booking's service
         WHERE bk_staff.status <> 'Cancelled'
           AND bk_staff.booking_time < datetime($slotEnd) // Existing booking starts before potential slot ends
           AND bk_staff.booking_time + duration({minutes: s_staff.duration_minutes}) > datetime($slotStart) // Existing booking ends after potential slot starts
+    `;
+    
+    // 如果提供了 existingBookingId，排除該預約
+    if (params.existingBookingId) {
+        staffConflictQuery += `
+          AND bk_staff.booking_id <> $existingBookingId // Exclude the booking being updated
+        `;
+    }
+    
+    staffConflictQuery += `
         RETURN count(bk_staff) AS conflictCount
     `;
-	const staffConflictParams = {
+	// 添加可能的 existingBookingId 到參數中
+	const staffConflictParams: IDataObject = {
 		staffId: params.staffId,
 		slotStart: slotStart.toISO(),
 		slotEnd: slotEnd.toISO(),
 	};
+	
+	// 如果提供了 existingBookingId，將其添加到查詢參數中
+	if (params.existingBookingId) {
+		staffConflictParams.existingBookingId = params.existingBookingId;
+	}
 	const staffConflictResults = await runCypherQuery.call(context, session, staffConflictQuery, staffConflictParams, false, params.itemIndex);
 	const staffConflictCount = convertNeo4jValueToJs(staffConflictResults[0]?.json.conflictCount) || 0;
 

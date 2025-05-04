@@ -122,6 +122,7 @@ export interface StaffAndResourceCheckParams {
 	itemIndex: number;
 	node: IExecuteFunctions; // To throw NodeOperationError correctly
 	customerId?: string; // Optional for customer conflict check
+	existingBookingId?: string; // Optional for excluding the current booking in update scenarios
 }
 
 export async function checkStaffAndResourceAvailability(
@@ -139,6 +140,7 @@ export async function checkStaffAndResourceAvailability(
 		itemIndex: params.itemIndex,
 		node: params.node,
 		customerId: params.customerId,
+		existingBookingId: params.existingBookingId, // 如果存在，將 existingBookingId 傳遞給 TimeOnly 檢查
 	};
 	// We need the duration later, so fetch it here first
 	const serviceDurationQuery = `
@@ -200,19 +202,35 @@ export async function checkStaffAndResourceAvailability(
 	context.logger.debug('[StaffAndResource Check v2] Staff availability rules check passed.');
 
 	// 3b. Check Staff-Specific Booking Conflicts
-	const staffConflictQuery = `
+	let staffConflictQuery = `
         MATCH (bk_staff:Booking)-[:SERVED_BY]->(:Staff {staff_id: $staffId})
         MATCH (bk_staff)-[:FOR_SERVICE]->(s_staff:Service)
         WHERE bk_staff.status <> 'Cancelled'
           AND bk_staff.booking_time < datetime($slotEnd)
           AND bk_staff.booking_time + duration({minutes: s_staff.duration_minutes}) > datetime($slotStart)
+    `;
+    
+    // 如果提供了 existingBookingId，排除該預約
+    if (params.existingBookingId) {
+        staffConflictQuery += `
+          AND bk_staff.booking_id <> $existingBookingId // Exclude the booking being updated
+        `;
+    }
+    
+    staffConflictQuery += `
         RETURN count(bk_staff) AS conflictCount
     `;
-	const staffConflictParams = {
+	// 添加可能的 existingBookingId 到參數中
+	const staffConflictParams: IDataObject = {
 		staffId: params.staffId,
 		slotStart: slotStart.toISO(),
 		slotEnd: slotEnd.toISO(),
 	};
+	
+	// 如果提供了 existingBookingId，將其添加到查詢參數中
+	if (params.existingBookingId) {
+		staffConflictParams.existingBookingId = params.existingBookingId;
+	}
 	const staffConflictResults = await runCypherQuery.call(context, session, staffConflictQuery, staffConflictParams, false, params.itemIndex);
 	const staffConflictCount = convertNeo4jValueToJs(staffConflictResults[0]?.json.conflictCount) || 0;
 
@@ -243,7 +261,7 @@ export async function checkStaffAndResourceAvailability(
 
 	// 4b. Calculate Used Resource Quantity in Slot
 	// Use improved parameter preparation with validation
-	let queryParams;
+	let queryParams: IDataObject;
 	try {
 		queryParams = prepareResourceAvailabilityParams(
 			params.resourceTypeId,
@@ -252,16 +270,31 @@ export async function checkStaffAndResourceAvailability(
 			slotStart,
 			slotEnd
 		);
+		
+		// 如果提供了 existingBookingId，將其添加到查詢參數中
+		if (params.existingBookingId) {
+			queryParams.existingBookingId = params.existingBookingId;
+		}
 	} catch (error) {
 		throw new NodeOperationError(params.node.getNode(), `Parameter validation error: ${error instanceof Error ? error.message : 'Unknown error'}`, { itemIndex: params.itemIndex });
 	}
 
-	const usedQuantityQuery = `
+	let usedQuantityQuery = `
         MATCH (existing:Booking)-[:USES_RESOURCE]->(ru:ResourceUsage)-[:OF_TYPE]->(:ResourceType {type_id: $resourceTypeId})
         MATCH (existing)-[:FOR_SERVICE]->(s_existing:Service)
         WHERE existing.status <> 'Cancelled'
           AND existing.booking_time < datetime($slotEnd)
           AND existing.booking_time + duration({minutes: s_existing.duration_minutes}) > datetime($slotStart)
+    `;
+    
+    // 如果提供了 existingBookingId，排除該預約
+    if (params.existingBookingId) {
+        usedQuantityQuery += `
+          AND existing.booking_id <> $existingBookingId // Exclude the booking being updated
+        `;
+    }
+    
+    usedQuantityQuery += `
         RETURN sum(coalesce(ru.quantity, 0)) AS currentlyUsed
     `;
 	const usedQuantityResults = await runCypherQuery.call(context, session, usedQuantityQuery, queryParams, false, params.itemIndex);

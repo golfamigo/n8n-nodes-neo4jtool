@@ -7,7 +7,6 @@ import type {
 	INodeType,
 	INodeTypeDescription,
 	ICredentialDataDecryptedObject,
-	IDataObject,
 } from 'n8n-workflow';
 import { NodeOperationError } from 'n8n-workflow';
 import neo4j, { Driver, Session, auth } from 'neo4j-driver';
@@ -16,7 +15,6 @@ import neo4j, { Driver, Session, auth } from 'neo4j-driver';
 import {
 	parseNeo4jError,
 	convertNeo4jValueToJs,
-	runCypherQuery,
 } from '../neo4j/helpers/utils';
 
 // --- 導入時間處理工具函數 ---
