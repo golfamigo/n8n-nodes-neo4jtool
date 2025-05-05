@@ -112,7 +112,8 @@ export async function checkResourceOnlyAvailability(
 	// 原始時間解析
 	const slotStartUTC = DateTime.fromISO(params.bookingTime);
 	// 轉換為商家時區
-	const slotStart = slotStartUTC.setZone(businessTimezone);
+	const businessTimezoneString = typeof businessTimezone === 'string' ? businessTimezone : 'UTC';
+const slotStart = slotStartUTC.setZone(businessTimezoneString);
 	const slotEnd = slotStart.plus({ minutes: serviceDuration });
 
 	if (!slotStart.isValid || !slotEnd.isValid) { // Should be caught by TimeOnly check, but double-check

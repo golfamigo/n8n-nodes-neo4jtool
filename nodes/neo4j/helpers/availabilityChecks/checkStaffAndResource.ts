@@ -179,7 +179,8 @@ export async function checkStaffAndResourceAvailability(
 	// 原始時間解析
 	const slotStartUTC = DateTime.fromISO(params.bookingTime);
 	// 轉換為商家時區
-	const slotStart = slotStartUTC.setZone(businessTimezone);
+	const businessTimezoneString = typeof businessTimezone === 'string' ? businessTimezone : 'UTC';
+const slotStart = slotStartUTC.setZone(businessTimezoneString);
 	const slotEnd = slotStart.plus({ minutes: serviceDuration });
 	// 使用商家時區的時間計算星期幾和日期
 	const slotDayOfWeek = slotStart.weekday;
