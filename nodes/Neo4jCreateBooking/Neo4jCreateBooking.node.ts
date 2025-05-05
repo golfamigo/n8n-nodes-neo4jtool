@@ -14,7 +14,13 @@ import {
 	prepareQueryParams, // Import prepareQueryParams
 	// convertNeo4jValueToJs // No longer directly used here
 } from '../neo4j/helpers/utils'; // Adjusted path assuming helpers are in ../neo4j/helpers/
-import { toNeo4jDateTimeString } from '../neo4j/helpers/timeUtils'; // Adjusted path
+import {
+	toNeo4jDateTimeString,
+	normalizeDateTime,
+  convertToTimezone,
+  getBusinessTimezone,
+  detectQueryTimezone,
+} from '../neo4j/helpers/timeUtils'; // Adjusted path
 import {
 	generateResourceUsageCreationQuery, // Import resource usage creation helper
 } from '../neo4j/helpers/resourceUtils'; // Adjusted path
@@ -171,11 +177,31 @@ export class Neo4jCreateBooking implements INodeType {
 						throw new NodeOperationError(this.getNode(), 'Customer ID, Business ID, and Service ID are required.', { itemIndex });
 					}
 
-					// Normalize booking time using helper (Same as before)
+					// 檢測預約時間中的時區信息
+					const queryTimezone = detectQueryTimezone(bookingTimeInput);
+					this.logger.debug(`[Create Booking] Detected timezone in booking time: ${queryTimezone}`);
+
+					// 如果沒有時區信息，獲取商家時區
+					let targetTimezone = queryTimezone;
+					if (!targetTimezone && session) {
+							targetTimezone = await getBusinessTimezone(session, businessId);
+							this.logger.debug(`[Create Booking] Using business timezone: ${targetTimezone}`);
+					}
+
+					// 如果依然沒有時區信息，預設使用 UTC
+					if (!targetTimezone) {
+							targetTimezone = 'UTC';
+							this.logger.debug('[Create Booking] No timezone info available, defaulting to UTC');
+					}
+
+					// 規範化時間格式（轉換為 UTC 用於存儲）
 					const bookingTime = toNeo4jDateTimeString(bookingTimeInput);
 					if (!bookingTime) {
-						throw new NodeOperationError(this.getNode(), `Invalid booking time format: ${bookingTimeInput}. Please use ISO 8601 format.`, { itemIndex });
+							throw new NodeOperationError(this.getNode(), `Invalid booking time format: ${bookingTimeInput}. Please use ISO 8601 format.`, { itemIndex });
 					}
+
+					// 保存目標時區以供後續使用
+					const originalTimezone = targetTimezone;
 
 					// 1. Get Service Booking Mode using helper (Same as before)
 					const serviceModeQuery = 'MATCH (s:Service {service_id: $serviceId}) RETURN s.booking_mode AS bookingMode';
@@ -297,14 +323,25 @@ export class Neo4jCreateBooking implements INodeType {
 					const results = await runCypherQuery.call(this, session, createQuery, preparedCreateParams, true, itemIndex);
 					this.logger.debug(`[Create Booking] Query executed, results count: ${results.length}`);
 
-					// Process results (Same as before)
+					// Process results and convert time zones
 					results.forEach((record) => {
 						const bookingProperties = record.json.booking as IDataObject | undefined;
 						if (bookingProperties && typeof bookingProperties === 'object') {
-							returnData.push({ json: bookingProperties, pairedItem: { item: itemIndex } });
+								// 如果存在預約時間，將其從 UTC 轉換回目標時區
+								if (bookingProperties.booking_time && originalTimezone) {
+										const utcBookingTime = bookingProperties.booking_time as string;
+										bookingProperties.booking_time = convertToTimezone(utcBookingTime, originalTimezone);
+
+										// 添加時區信息到結果
+										bookingProperties.timezone = originalTimezone;
+
+										this.logger.debug(`[Create Booking] Converted booking time from UTC to ${originalTimezone}: ${bookingProperties.booking_time}`);
+								}
+
+								returnData.push({ json: bookingProperties, pairedItem: { item: itemIndex } });
 						} else {
-							this.logger.warn(`[Create Booking] Booking properties not found or invalid in query result for item ${itemIndex}`, { recordData: record.json });
-							returnData.push({ json: { error: 'Booking creation confirmed but node data retrieval failed.' }, pairedItem: { item: itemIndex } });
+								this.logger.warn(`[Create Booking] Booking properties not found or invalid in query result for item ${itemIndex}`, { recordData: record.json });
+								returnData.push({ json: { error: 'Booking creation confirmed but node data retrieval failed.' }, pairedItem: { item: itemIndex } });
 						}
 					});
 

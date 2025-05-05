@@ -21,8 +21,12 @@ import {
 } from '../neo4j/helpers/utils';
 
 // --- Time Utilities ---
+// --- Time Utilities ---
 import {
 	toNeo4jDateTimeString,
+	convertToTimezone,
+	getBusinessTimezone,
+	detectQueryTimezone,
 } from '../neo4j/helpers/timeUtils';
 
 // --- Availability Check Utilities ---
@@ -199,18 +203,38 @@ export class Neo4jUpdateBooking implements INodeType {
 					let newBookingTime: string | null = null;
 					let needsAvailabilityCheck = false;
 					let finalStaffId: string | null = currentStaffId; // Start with current staff
+					let targetTimezone: string | null = null;
 
 					if (rawBookingTime !== undefined && rawBookingTime !== '') {
-						newBookingTime = toNeo4jDateTimeString(rawBookingTime);
-						if (!newBookingTime) {
-							throw new NodeOperationError(node, `Invalid new booking time format: ${rawBookingTime}. Use ISO 8601.`, { itemIndex });
-						}
-						if (newBookingTime !== currentBookingTime) {
-							needsAvailabilityCheck = true;
-						}
+							// 檢測預約時間中的時區信息
+							targetTimezone = detectQueryTimezone(rawBookingTime);
+							this.logger.debug(`[Update Booking] Detected timezone in new booking time: ${targetTimezone}`);
+
+							// 如果沒有時區信息，獲取商家時區
+							if (!targetTimezone && businessId) {
+									targetTimezone = await getBusinessTimezone(session, businessId);
+									this.logger.debug(`[Update Booking] Using business timezone: ${targetTimezone}`);
+							}
+
+							// 如果依然沒有時區信息，預設使用 UTC
+							if (!targetTimezone) {
+									targetTimezone = 'UTC';
+									this.logger.debug('[Update Booking] No timezone info available, defaulting to UTC');
+							}
+
+							newBookingTime = toNeo4jDateTimeString(rawBookingTime);
+							if (!newBookingTime) {
+									throw new NodeOperationError(node, `Invalid new booking time format: ${rawBookingTime}. Use ISO 8601.`, { itemIndex });
+							}
+							if (newBookingTime !== currentBookingTime) {
+									needsAvailabilityCheck = true;
+							}
 					} else {
-						newBookingTime = currentBookingTime; // If not changing, use current for check
+							newBookingTime = currentBookingTime; // If not changing, use current for check
 					}
+
+					// 保存原始時區信息到參數
+					const originalTimezone = targetTimezone;
 
 					if (rawNewStaffId !== undefined) { // If staffId parameter was provided
 						finalStaffId = rawNewStaffId === '' ? null : rawNewStaffId; // Empty string means remove staff (null)
@@ -328,15 +352,27 @@ export class Neo4jUpdateBooking implements INodeType {
 					const results = await runCypherQuery.call(this, session, updateQuery, preparedUpdateParams, true, itemIndex);
 
 					// Process results (convert Neo4j types in the result)
-                    const processedResults = results.map(record => ({
-                        json: {
-                            booking: convertNeo4jValueToJs(record.json.booking) // Convert the whole booking object
-                        },
-                        pairedItem: record.pairedItem,
-                    }));
+					const processedResults = results.map(record => {
+						const bookingData = convertNeo4jValueToJs(record.json.booking);
+
+						// 如果存在預約時間和目標時區，將時間從 UTC 轉換回原始時區
+						if (bookingData && typeof bookingData === 'object' && bookingData.booking_time && originalTimezone) {
+								const utcBookingTime = bookingData.booking_time as string;
+								bookingData.booking_time = convertToTimezone(utcBookingTime, originalTimezone);
+
+								// 添加時區信息到結果
+								bookingData.timezone = originalTimezone;
+
+								this.logger.debug(`[Update Booking] Converted time from UTC to ${originalTimezone}: ${bookingData.booking_time}`);
+						}
+
+						return {
+								json: { booking: bookingData },
+								pairedItem: record.pairedItem,
+						};
+					});
 
 					returnData.push(...processedResults); // Add processed results
-
 
 				} catch (itemError) {
 					if (this.continueOnFail(itemError)) {

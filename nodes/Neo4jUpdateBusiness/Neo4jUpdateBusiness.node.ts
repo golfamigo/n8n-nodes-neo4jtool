@@ -246,6 +246,11 @@ export class Neo4jUpdateBusiness implements INodeType {
 							parameters.description = description;
 							this.logger.info(`- Setting description: ${description}`);
 						}
+						if (timezone !== undefined && timezone !== '') {
+							setClauses.push('b.timezone = $timezone');
+							parameters.timezone = timezone;
+							this.logger.info(`- Setting timezone: ${timezone}`);
+						}
 						// Add booking_mode to SET clause if a valid value was determined
 						if (bookingModeToUse) {
 							setClauses.push('b.booking_mode = $booking_mode_param');
