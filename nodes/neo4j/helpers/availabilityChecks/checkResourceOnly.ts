@@ -87,24 +87,41 @@ export async function checkResourceOnlyAvailability(
 	// --- 2. Calculate Slot Times (again, needed for resource checks) ---
 	// We need serviceDuration again, could potentially pass it from TimeOnly check if refactored
 	const serviceDurationQuery = `
-        MATCH (s:Service {service_id: $serviceId})
-        RETURN s.duration_minutes AS serviceDuration
-    `;
+			MATCH (s:Service {service_id: $serviceId})
+			RETURN s.duration_minutes AS serviceDuration
+	`;
 	const serviceDurationParams = { serviceId: params.serviceId };
 	const serviceDurationResults = await runCypherQuery.call(context, session, serviceDurationQuery, serviceDurationParams, false, params.itemIndex);
 	const serviceDuration = convertNeo4jValueToJs(serviceDurationResults[0]?.json.serviceDuration);
 	if (serviceDuration === null || typeof serviceDuration !== 'number' || serviceDuration <= 0) {
-		throw new NodeOperationError(params.node.getNode(), `Could not re-fetch service duration for Service ID ${params.serviceId}`, { itemIndex: params.itemIndex });
+			throw new NodeOperationError(params.node.getNode(), `Could not re-fetch service duration for Service ID ${params.serviceId}`, { itemIndex: params.itemIndex });
 	}
 
-	const slotStart = DateTime.fromISO(params.bookingTime);
+	// 獲取商家時區
+	const businessTimezoneQuery = `
+			MATCH (b:Business {business_id: $businessId})
+			RETURN b.timezone AS timezone
+	`;
+	const businessTimezoneParams = { businessId: params.businessId };
+	const businessTimezoneResults = await runCypherQuery.call(context, session, businessTimezoneQuery, businessTimezoneParams, false, params.itemIndex);
+	const businessTimezone = businessTimezoneResults.length > 0 ?
+			(businessTimezoneResults[0].json.timezone || 'UTC') : 'UTC';
+
+	context.logger.debug(`[ResourceOnly Check] Business timezone: ${businessTimezone}`);
+
+	// 原始時間解析
+	const slotStartUTC = DateTime.fromISO(params.bookingTime);
+	// 轉換為商家時區
+	const slotStart = slotStartUTC.setZone(businessTimezone);
 	const slotEnd = slotStart.plus({ minutes: serviceDuration });
 
 	if (!slotStart.isValid || !slotEnd.isValid) { // Should be caught by TimeOnly check, but double-check
-		throw new NodeOperationError(params.node.getNode(), `Invalid booking time format: ${params.bookingTime}`, { itemIndex: params.itemIndex });
+			throw new NodeOperationError(params.node.getNode(), `Invalid booking time format: ${params.bookingTime}`, { itemIndex: params.itemIndex });
 	}
 
-	// --- 3. Get Resource Type Capacity ---
+	context.logger.debug(`[ResourceOnly Check] Slot in business timezone: ${slotStart.toISO()} - ${slotEnd.toISO()}`);
+
+// --- 3. Get Resource Type Capacity ---
 	const capacityQuery = `
         MATCH (rt:ResourceType {type_id: $resourceTypeId})
         WHERE rt.business_id = $businessId
@@ -133,7 +150,7 @@ export async function checkResourceOnlyAvailability(
 			slotStart,
 			slotEnd
 		);
-		
+
 		// 如果提供了 existingBookingId，將其添加到查詢參數中
 		if (params.existingBookingId) {
 			queryParams.existingBookingId = params.existingBookingId;
@@ -150,14 +167,14 @@ export async function checkResourceOnlyAvailability(
           AND existing.booking_time < datetime($slotEnd) // Existing booking starts before potential slot ends
           AND existing.booking_time + duration({minutes: s_existing.duration_minutes}) > datetime($slotStart) // Existing booking ends after potential slot starts
     `;
-    
+
     // 如果提供了 existingBookingId，排除該預約
     if (params.existingBookingId) {
         usedQuantityQuery += `
           AND existing.booking_id <> $existingBookingId // Exclude the booking being updated
         `;
     }
-    
+
     usedQuantityQuery += `
         RETURN sum(coalesce(ru.quantity, 0)) AS currentlyUsed
     `;

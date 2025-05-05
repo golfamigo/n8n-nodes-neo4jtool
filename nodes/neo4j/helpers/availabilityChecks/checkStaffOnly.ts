@@ -47,7 +47,7 @@ function checkStaffAvailabilityRules(
 				const startWithinException = isTimeBetween(slotStartTime, rule.start_time, rule.end_time, true);
 				const endWithinException = isTimeBetween(slotEndTime, rule.start_time, rule.end_time, false);
 				const endsAtClosing = slotEndTime === rule.end_time;
-				
+
 				if ((startWithinException && endWithinException) || (startWithinException && endsAtClosing)) {
 					context.logger.debug(`[Staff Availability Check] Slot covered by positive exception: ${rule.start_time}-${rule.end_time}`);
 					coveredByPositiveException = true;
@@ -58,7 +58,7 @@ function checkStaffAvailabilityRules(
 			const startWithinSchedule = isTimeBetween(slotStartTime, rule.start_time, rule.end_time, true);
 			const endWithinSchedule = isTimeBetween(slotEndTime, rule.start_time, rule.end_time, false);
 			const endsAtClosing = slotEndTime === rule.end_time;
-			
+
 			if ((startWithinSchedule && endWithinSchedule) || (startWithinSchedule && endsAtClosing)) {
 				context.logger.debug(`[Staff Availability Check] Slot covered by schedule: ${rule.start_time}-${rule.end_time}`);
 				coveredBySchedule = true;
@@ -102,24 +102,42 @@ export async function checkStaffOnlyAvailability(
 	// --- 2. Calculate Slot Times and Day (again, needed for staff checks) ---
 	// We need serviceDuration again, could potentially pass it from TimeOnly check if refactored
 	const serviceDurationQuery = `
-        MATCH (s:Service {service_id: $serviceId})
-        RETURN s.duration_minutes AS serviceDuration
-    `;
+			MATCH (s:Service {service_id: $serviceId})
+			RETURN s.duration_minutes AS serviceDuration
+	`;
 	const serviceDurationParams = { serviceId: params.serviceId };
 	const serviceDurationResults = await runCypherQuery.call(context, session, serviceDurationQuery, serviceDurationParams, false, params.itemIndex);
 	const serviceDuration = convertNeo4jValueToJs(serviceDurationResults[0]?.json.serviceDuration);
 	if (serviceDuration === null || typeof serviceDuration !== 'number' || serviceDuration <= 0) {
-		throw new NodeOperationError(params.node.getNode(), `Could not re-fetch service duration for Service ID ${params.serviceId}`, { itemIndex: params.itemIndex });
+			throw new NodeOperationError(params.node.getNode(), `Could not re-fetch service duration for Service ID ${params.serviceId}`, { itemIndex: params.itemIndex });
 	}
 
-	const slotStart = DateTime.fromISO(params.bookingTime);
+	// 新增: 獲取商家時區
+	const businessTimezoneQuery = `
+			MATCH (b:Business {business_id: $businessId})
+			RETURN b.timezone AS timezone
+	`;
+	const businessTimezoneParams = { businessId: params.businessId };
+	const businessTimezoneResults = await runCypherQuery.call(context, session, businessTimezoneQuery, businessTimezoneParams, false, params.itemIndex);
+	const businessTimezone = businessTimezoneResults.length > 0 ?
+			(businessTimezoneResults[0].json.timezone || 'UTC') : 'UTC';
+
+	context.logger.debug(`[StaffOnly Check] Business timezone: ${businessTimezone}`);
+
+	// 原始時間解析
+	const slotStartUTC = DateTime.fromISO(params.bookingTime);
+	// 轉換為商家時區
+	const slotStart = slotStartUTC.setZone(businessTimezone);
 	const slotEnd = slotStart.plus({ minutes: serviceDuration });
+	// 使用商家時區的時間計算星期幾和日期
 	const slotDayOfWeek = slotStart.weekday;
 	const slotDate = slotStart.toISODate();
 
 	if (!slotStart.isValid || !slotEnd.isValid) { // Should be caught by TimeOnly check, but double-check
-		throw new NodeOperationError(params.node.getNode(), `Invalid booking time format: ${params.bookingTime}`, { itemIndex: params.itemIndex });
+			throw new NodeOperationError(params.node.getNode(), `Invalid booking time format: ${params.bookingTime}`, { itemIndex: params.itemIndex });
 	}
+
+	context.logger.debug(`[StaffOnly Check] Slot in business timezone: ${slotStart.toISO()} - ${slotEnd.toISO()}, Day: ${slotDayOfWeek}, Date: ${slotDate}`);
 
 	// --- 3. Get and Check Staff Availability Rules ---
 	const staffAvailabilityQuery = `
@@ -158,14 +176,14 @@ export async function checkStaffOnlyAvailability(
           AND bk_staff.booking_time < datetime($slotEnd) // Existing booking starts before potential slot ends
           AND bk_staff.booking_time + duration({minutes: s_staff.duration_minutes}) > datetime($slotStart) // Existing booking ends after potential slot starts
     `;
-    
+
     // 如果提供了 existingBookingId，排除該預約
     if (params.existingBookingId) {
         staffConflictQuery += `
           AND bk_staff.booking_id <> $existingBookingId // Exclude the booking being updated
         `;
     }
-    
+
     staffConflictQuery += `
         RETURN count(bk_staff) AS conflictCount
     `;
@@ -175,7 +193,7 @@ export async function checkStaffOnlyAvailability(
 		slotStart: slotStart.toISO(),
 		slotEnd: slotEnd.toISO(),
 	};
-	
+
 	// 如果提供了 existingBookingId，將其添加到查詢參數中
 	if (params.existingBookingId) {
 		staffConflictParams.existingBookingId = params.existingBookingId;

@@ -50,11 +50,11 @@ function checkBusinessHours(
 
 
 export async function checkTimeOnlyAvailability(
-	session: Session,
-	params: TimeOnlyCheckParams,
-	context: IExecuteFunctions,
+  session: Session,
+  params: TimeOnlyCheckParams,
+  context: IExecuteFunctions,
 ): Promise<void> {
-	context.logger.debug(`[TimeOnly Check v2] Checking for time: ${params.bookingTime}`);
+  context.logger.debug(`[TimeOnly Check v2] Checking for time: ${params.bookingTime}`);
 
 	// --- 1. Get Service Duration ---
 	const serviceDurationQuery = `
@@ -72,15 +72,29 @@ export async function checkTimeOnlyAvailability(
 	}
 	context.logger.debug(`[TimeOnly Check v2] Service duration: ${serviceDuration} minutes`);
 
-	// --- 2. Calculate Slot Times and Day ---
-	const slotStart = DateTime.fromISO(params.bookingTime);
-	const slotEnd = slotStart.plus({ minutes: serviceDuration });
-	const slotDayOfWeek = slotStart.weekday; // Luxon weekday: 1 (Mon) to 7 (Sun)
+	  // --- 新增: 獲取商家時區 ---
+		const businessTimezoneQuery = `
+			MATCH (b:Business {business_id: $businessId})
+			RETURN b.timezone AS timezone
+		`;
+		const businessTimezoneParams = { businessId: params.businessId };
+		const businessTimezoneResults = await runCypherQuery.call(context, session, businessTimezoneQuery, businessTimezoneParams, false, params.itemIndex);
+		const businessTimezone = businessTimezoneResults.length > 0 ?
+			(businessTimezoneResults[0].json.timezone || 'UTC') : 'UTC';
 
-	if (!slotStart.isValid || !slotEnd.isValid) {
-		throw new NodeOperationError(params.node.getNode(), `Invalid booking time format: ${params.bookingTime}`, { itemIndex: params.itemIndex });
-	}
-	context.logger.debug(`[TimeOnly Check v2] Slot: ${slotStart.toISO()} - ${slotEnd.toISO()}, Day: ${slotDayOfWeek}`);
+		context.logger.debug(`[TimeOnly Check] Business timezone: ${businessTimezone}`);
+
+  // --- 2. Calculate Slot Times and Day (修改) ---
+  // 原始時間解析
+  const slotStartUTC = DateTime.fromISO(params.bookingTime);
+
+  // 轉換為商家時區
+  const slotStart = slotStartUTC.setZone(businessTimezone);
+  const slotEnd = slotStart.plus({ minutes: serviceDuration });
+  // 使用商家時區的時間計算星期幾
+  const slotDayOfWeek = slotStart.weekday;
+
+  context.logger.debug(`[TimeOnly Check] Slot in business timezone: ${slotStart.toISO()} - ${slotEnd.toISO()}, Day: ${slotDayOfWeek}`);
 
 	// --- 3. Get and Check Business Hours ---
 	const businessHoursQuery = `
@@ -105,14 +119,14 @@ export async function checkTimeOnlyAvailability(
           AND b.booking_time < datetime($slotEnd) // Existing booking starts before potential slot ends
           AND b.booking_time + duration({minutes: s.duration_minutes}) > datetime($slotStart) // Existing booking ends after potential slot starts
     `;
-    
+
     // 如果提供了 existingBookingId，排除該預約
     if (params.existingBookingId) {
         conflictCheckQuery += `
           AND b.booking_id <> $existingBookingId // Exclude the booking being updated
         `;
     }
-    
+
     conflictCheckQuery += `
         RETURN count(b) AS conflictCount
     `;
@@ -122,7 +136,7 @@ export async function checkTimeOnlyAvailability(
 		slotStart: slotStart.toISO(),
 		slotEnd: slotEnd.toISO(),
 	};
-	
+
 	// 如果提供了 existingBookingId，將其添加到查詢參數中
 	if (params.existingBookingId) {
 		conflictCheckParams.existingBookingId = params.existingBookingId;
@@ -145,14 +159,14 @@ export async function checkTimeOnlyAvailability(
               AND bk_cust.booking_time < datetime($slotEnd) // Existing booking starts before potential slot ends
               AND bk_cust.booking_time + duration({minutes: s_cust.duration_minutes}) > datetime($slotStart) // Existing booking ends after potential slot starts
         `;
-        
+
         // 如果提供了 existingBookingId，排除該預約
         if (params.existingBookingId) {
             customerConflictQuery += `
               AND bk_cust.booking_id <> $existingBookingId // Exclude the booking being updated
             `;
         }
-        
+
         customerConflictQuery += `
             RETURN count(bk_cust) AS conflictCount
         `;
@@ -162,7 +176,7 @@ export async function checkTimeOnlyAvailability(
 			slotStart: slotStart.toISO(),
 			slotEnd: slotEnd.toISO(),
 		};
-		
+
 		// 如果提供了 existingBookingId，將其添加到查詢參數中
 		if (params.existingBookingId) {
 			customerConflictParams.existingBookingId = params.existingBookingId;

@@ -163,15 +163,32 @@ export async function checkStaffAndResourceAvailability(
 	context.logger.debug('[StaffAndResource Check v2] TimeOnly checks passed.');
 
 
-	// --- 2. Calculate Slot Times and Day (needed for specific checks) ---
-	const slotStart = DateTime.fromISO(params.bookingTime);
+	// --- 2. Calculate Slot Times and Day (修改) ---
+	// 獲取商家時區
+	const businessTimezoneQuery = `
+			MATCH (b:Business {business_id: $businessId})
+			RETURN b.timezone AS timezone
+	`;
+	const businessTimezoneParams = { businessId: params.businessId };
+	const businessTimezoneResults = await runCypherQuery.call(context, session, businessTimezoneQuery, businessTimezoneParams, false, params.itemIndex);
+	const businessTimezone = businessTimezoneResults.length > 0 ?
+			(businessTimezoneResults[0].json.timezone || 'UTC') : 'UTC';
+
+	context.logger.debug(`[StaffAndResource Check] Business timezone: ${businessTimezone}`);
+
+	// 原始時間解析
+	const slotStartUTC = DateTime.fromISO(params.bookingTime);
+	// 轉換為商家時區
+	const slotStart = slotStartUTC.setZone(businessTimezone);
 	const slotEnd = slotStart.plus({ minutes: serviceDuration });
+	// 使用商家時區的時間計算星期幾和日期
 	const slotDayOfWeek = slotStart.weekday;
 	const slotDate = slotStart.toISODate();
 
 	if (!slotStart.isValid || !slotEnd.isValid) {
-		throw new NodeOperationError(params.node.getNode(), `Invalid booking time format: ${params.bookingTime}`, { itemIndex: params.itemIndex });
+			throw new NodeOperationError(params.node.getNode(), `Invalid booking time format: ${params.bookingTime}`, { itemIndex: params.itemIndex });
 	}
+	context.logger.debug(`[StaffAndResource Check] Slot in business timezone: ${slotStart.toISO()} - ${slotEnd.toISO()}, Day: ${slotDayOfWeek}, Date: ${slotDate}`);
 
 	// --- 3. Perform StaffOnly Specific Checks ---
 	// 3a. Get and Check Staff Availability Rules
@@ -209,14 +226,14 @@ export async function checkStaffAndResourceAvailability(
           AND bk_staff.booking_time < datetime($slotEnd)
           AND bk_staff.booking_time + duration({minutes: s_staff.duration_minutes}) > datetime($slotStart)
     `;
-    
+
     // 如果提供了 existingBookingId，排除該預約
     if (params.existingBookingId) {
         staffConflictQuery += `
           AND bk_staff.booking_id <> $existingBookingId // Exclude the booking being updated
         `;
     }
-    
+
     staffConflictQuery += `
         RETURN count(bk_staff) AS conflictCount
     `;
@@ -226,7 +243,7 @@ export async function checkStaffAndResourceAvailability(
 		slotStart: slotStart.toISO(),
 		slotEnd: slotEnd.toISO(),
 	};
-	
+
 	// 如果提供了 existingBookingId，將其添加到查詢參數中
 	if (params.existingBookingId) {
 		staffConflictParams.existingBookingId = params.existingBookingId;
@@ -270,7 +287,7 @@ export async function checkStaffAndResourceAvailability(
 			slotStart,
 			slotEnd
 		);
-		
+
 		// 如果提供了 existingBookingId，將其添加到查詢參數中
 		if (params.existingBookingId) {
 			queryParams.existingBookingId = params.existingBookingId;
@@ -286,14 +303,14 @@ export async function checkStaffAndResourceAvailability(
           AND existing.booking_time < datetime($slotEnd)
           AND existing.booking_time + duration({minutes: s_existing.duration_minutes}) > datetime($slotStart)
     `;
-    
+
     // 如果提供了 existingBookingId，排除該預約
     if (params.existingBookingId) {
         usedQuantityQuery += `
           AND existing.booking_id <> $existingBookingId // Exclude the booking being updated
         `;
     }
-    
+
     usedQuantityQuery += `
         RETURN sum(coalesce(ru.quantity, 0)) AS currentlyUsed
     `;
