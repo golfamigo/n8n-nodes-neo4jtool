@@ -2,6 +2,7 @@
 // Neo4j MCP 通用時間處理工具函數
 import { DateTime } from 'luxon';
 import neo4j from 'neo4j-driver';
+import { Session } from 'neo4j-driver';
 import {
   convertNeo4jValueToJs,
 } from './utils';
@@ -581,7 +582,8 @@ export function convertToTimezone(utcTime: string, targetTimezone: string): stri
     const dt = DateTime.fromISO(utcTime, { zone: 'UTC' });
     if (!dt.isValid) return utcTime;
 
-    return dt.setZone(targetTimezone).toISO();
+    const result = dt.setZone(targetTimezone).toISO();
+    return result || utcTime; // 確保一定返回字符串
   } catch (error) {
     console.error(`Error converting to timezone ${targetTimezone}: ${error.message}`);
     return utcTime;

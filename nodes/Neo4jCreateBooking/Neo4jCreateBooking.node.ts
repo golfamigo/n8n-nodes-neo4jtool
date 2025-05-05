@@ -184,20 +184,24 @@ export class Neo4jCreateBooking implements INodeType {
 					// 如果沒有時區信息，獲取商家時區
 					let targetTimezone = queryTimezone;
 					if (!targetTimezone && session) {
-							targetTimezone = await getBusinessTimezone(session, businessId);
-							this.logger.debug(`[Create Booking] Using business timezone: ${targetTimezone}`);
+					targetTimezone = await getBusinessTimezone(session, businessId);
+					this.logger.debug(`[Create Booking] Using business timezone: ${targetTimezone}`);
 					}
 
 					// 如果依然沒有時區信息，預設使用 UTC
 					if (!targetTimezone) {
-							targetTimezone = 'UTC';
-							this.logger.debug('[Create Booking] No timezone info available, defaulting to UTC');
+					targetTimezone = 'UTC';
+					this.logger.debug('[Create Booking] No timezone info available, defaulting to UTC');
 					}
 
-					// 規範化時間格式（轉換為 UTC 用於存儲）
-					const bookingTime = toNeo4jDateTimeString(bookingTimeInput);
-					if (!bookingTime) {
-							throw new NodeOperationError(this.getNode(), `Invalid booking time format: ${bookingTimeInput}. Please use ISO 8601 format.`, { itemIndex });
+					// 使用 normalizeDateTime 規範化時間格式
+					const normalizedTime = normalizeDateTime(bookingTimeInput);
+					this.logger.debug(`[Create Booking] Normalized booking time: ${normalizedTime}`);
+
+						// 規範化時間格式（轉換為 UTC 用於存儲）
+						const bookingTime = toNeo4jDateTimeString(bookingTimeInput);
+						if (!bookingTime) {
+								throw new NodeOperationError(this.getNode(), `Invalid booking time format: ${bookingTimeInput}. Please use ISO 8601 format.`, { itemIndex });
 					}
 
 					// 保存目標時區以供後續使用
