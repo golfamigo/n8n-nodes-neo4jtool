@@ -217,13 +217,16 @@ export function toNeo4jTimeString(timeInput: any): string | null {
  * @returns 轉換後的本地時間字符串
  */
 // 修正 utcToLocalTime 函數的空值處理
-export function utcToLocalTime(utcTime: string, timezone: string): string | null {
+export function utcToLocalTime(utcTime: string, timezone: string | number | true | object): string | null {
   try {
     if (!utcTime) return null;
 
+    // 確保時區參數是字串型別
+    const timezoneString = typeof timezone === 'string' ? timezone : 'UTC';
+
     const dt = DateTime.fromISO(utcTime, { zone: 'UTC' });
     if (!dt.isValid) return null;
-    return dt.setZone(timezone).toISO();
+    return dt.setZone(timezoneString).toISO();
   } catch (error) {
     console.error(`Error converting UTC to local time: ${error.message}`);
     return null;
@@ -575,17 +578,23 @@ export function isTimeBetween(t1: string, start: string, end: string, inclusiveE
  * @param targetTimezone 目標時區
  * @returns 轉換後的時間字符串
  */
-export function convertToTimezone(utcTime: string, targetTimezone: string): string {
-  if (!utcTime || !targetTimezone) return utcTime;
+export function convertToTimezone(utcTime: string, targetTimezone: string | number | true | object): string {
+  if (!utcTime) return utcTime;
 
   try {
+    // 確保時區參數是字串型別
+    const targetTimezoneString = typeof targetTimezone === 'string' ? targetTimezone : 'UTC';
+    
+    // 若無有有效的時區字串，使用預設值
+    if (!targetTimezoneString) return utcTime;
+
     const dt = DateTime.fromISO(utcTime, { zone: 'UTC' });
     if (!dt.isValid) return utcTime;
 
-    const result = dt.setZone(targetTimezone).toISO();
+    const result = dt.setZone(targetTimezoneString).toISO();
     return result || utcTime; // 確保一定返回字符串
   } catch (error) {
-    console.error(`Error converting to timezone ${targetTimezone}: ${error.message}`);
+    console.error(`Error converting to timezone: ${error.message}`);
     return utcTime;
   }
 }
@@ -606,8 +615,11 @@ export async function getBusinessTimezone(session: Session, businessId: string):
     `;
 
     const result = await session.run(query, { businessId });
-    return result.records.length > 0 ?
-           (result.records[0].get('timezone') || 'UTC') : 'UTC';
+    const timezoneValue = result.records.length > 0 ? result.records[0].get('timezone') : null;
+    
+    // 確保傳回的是字串型別
+    const businessTimezoneString = typeof timezoneValue === 'string' ? timezoneValue : 'UTC';
+    return businessTimezoneString;
   } catch (error) {
     console.error(`Error getting business timezone: ${error.message}`);
     return 'UTC';
