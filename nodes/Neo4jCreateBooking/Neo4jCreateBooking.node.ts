@@ -15,7 +15,6 @@ import {
 	// convertNeo4jValueToJs // No longer directly used here
 } from '../neo4j/helpers/utils'; // Adjusted path assuming helpers are in ../neo4j/helpers/
 import {
-	toNeo4jDateTimeString,
 	normalizeDateTime,
   convertToTimezone,
   getBusinessTimezone,
@@ -198,11 +197,12 @@ export class Neo4jCreateBooking implements INodeType {
 					const normalizedTime = normalizeDateTime(bookingTimeInput);
 					this.logger.debug(`[Create Booking] Normalized booking time: ${normalizedTime}`);
 
-						// 規範化時間格式（轉換為 UTC 用於存儲）
-						const bookingTime = toNeo4jDateTimeString(bookingTimeInput);
-						if (!bookingTime) {
-								throw new NodeOperationError(this.getNode(), `Invalid booking time format: ${bookingTimeInput}. Please use ISO 8601 format.`, { itemIndex });
+					// 規範化時間格式但保留原始時區信息
+
+					if (!normalizedTime) {
+							throw new NodeOperationError(this.getNode(), `Invalid booking time format: ${bookingTimeInput}. Please use ISO 8601 format.`, { itemIndex });
 					}
+					const bookingTime = normalizedTime; // 使用規範化但未轉換時區的時間
 
 					// 保存目標時區以供後續使用
 					const originalTimezone = targetTimezone;
@@ -225,7 +225,7 @@ export class Neo4jCreateBooking implements INodeType {
 					this.logger.debug(`[Create Booking] Performing availability check for mode: ${bookingMode}`);
 					switch (bookingMode) {
 						case 'TimeOnly':
-							const timeParams: TimeOnlyCheckParams = { businessId, serviceId, bookingTime, itemIndex, node: this, customerId };
+							const timeParams: TimeOnlyCheckParams = { businessId, serviceId, bookingTime: normalizedTime, itemIndex, node: this, customerId };
 							await checkTimeOnlyAvailability(session, timeParams, this);
 							break;
 						case 'ResourceOnly':
